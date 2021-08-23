@@ -1,0 +1,39 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Publish wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            args: --skip-existing
+            manylinux: 2014
+          - os: windows-latest
+            args: --skip-existing
+            manylinux: auto
+          - os: macos-latest
+            args: --skip-existing
+            manylinux: auto
+            archflags: "-arch x86_64 -arch arm64"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install macOS x86_64 target
+        if: matrix.os == 'macos-latest'
+        run: rustup target add x86_64-apple-darwin
+      - uses: PyO3/maturin-action@v1
+        env:
+          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+          ARCHFLAGS: ${{ matrix.archflags }}
+        with:
+          command: publish
+          args: ${{ matrix.args }}
+          manylinux: ${{ matrix.manylinux }}
