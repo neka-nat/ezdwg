@@ -17,4 +17,8 @@ class Entity:
             return [self.dxf["start"], self.dxf["end"]]
         if self.dxftype == "LWPOLYLINE":
             return list(self.dxf.get("points", []))
+        if self.dxftype == "POINT":
+            return [self.dxf["location"]]
+        if self.dxftype in {"TEXT", "MTEXT"}:
+            return [self.dxf["insert"]]
         raise NotImplementedError(f"to_points is not supported for {self.dxftype}")

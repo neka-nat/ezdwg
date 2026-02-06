@@ -1105,4 +1105,143 @@ mod tests {
         assert_eq!(vertex_2d_count, 0);
         assert_eq!(seqend_count, 0);
     }
+
+    #[test]
+    fn decodes_point_circle_ellipse_from_r2004_samples() {
+        let config = ParseConfig::default();
+
+        let point2d_bytes = std::fs::read("dwg_samples/point2d_2004.dwg").expect("point2d sample");
+        let point2d_index =
+            build_object_index(&point2d_bytes, &config).expect("point2d object index");
+        let mut point2d_count = 0usize;
+        for object in &point2d_index.objects {
+            let record = parse_object_record(&point2d_bytes, object.offset, &config)
+                .expect("point2d object record");
+            let header =
+                crate::objects::object_header_r2000::parse_from_record(&record).expect("header");
+            if header.type_code != 0x1B {
+                continue;
+            }
+            point2d_count += 1;
+            let mut reader = record.bit_reader();
+            let _type = reader.read_bs().expect("type");
+            let entity = crate::entities::decode_point(&mut reader).expect("point");
+            assert!((entity.location.0 - 50.0).abs() < 1e-9);
+            assert!((entity.location.1 - 50.0).abs() < 1e-9);
+        }
+        assert_eq!(point2d_count, 1);
+
+        let point3d_bytes = std::fs::read("dwg_samples/point3d_2004.dwg").expect("point3d sample");
+        let point3d_index =
+            build_object_index(&point3d_bytes, &config).expect("point3d object index");
+        let mut point3d_count = 0usize;
+        for object in &point3d_index.objects {
+            let record = parse_object_record(&point3d_bytes, object.offset, &config)
+                .expect("point3d object record");
+            let header =
+                crate::objects::object_header_r2000::parse_from_record(&record).expect("header");
+            if header.type_code != 0x1B {
+                continue;
+            }
+            point3d_count += 1;
+            let mut reader = record.bit_reader();
+            let _type = reader.read_bs().expect("type");
+            let entity = crate::entities::decode_point(&mut reader).expect("point");
+            assert!((entity.location.2 - 50.0).abs() < 1e-9);
+        }
+        assert_eq!(point3d_count, 1);
+
+        let circle_bytes = std::fs::read("dwg_samples/circle_2004.dwg").expect("circle sample");
+        let circle_index = build_object_index(&circle_bytes, &config).expect("circle object index");
+        let mut circle_count = 0usize;
+        for object in &circle_index.objects {
+            let record =
+                parse_object_record(&circle_bytes, object.offset, &config).expect("circle record");
+            let header =
+                crate::objects::object_header_r2000::parse_from_record(&record).expect("header");
+            if header.type_code != 0x12 {
+                continue;
+            }
+            circle_count += 1;
+            let mut reader = record.bit_reader();
+            let _type = reader.read_bs().expect("type");
+            let entity = crate::entities::decode_circle(&mut reader).expect("circle");
+            assert!((entity.radius - 50.0).abs() < 1e-9);
+        }
+        assert_eq!(circle_count, 1);
+
+        let ellipse_bytes = std::fs::read("dwg_samples/ellipse_2004.dwg").expect("ellipse sample");
+        let ellipse_index =
+            build_object_index(&ellipse_bytes, &config).expect("ellipse object index");
+        let mut ellipse_count = 0usize;
+        for object in &ellipse_index.objects {
+            let record = parse_object_record(&ellipse_bytes, object.offset, &config)
+                .expect("ellipse record");
+            let header =
+                crate::objects::object_header_r2000::parse_from_record(&record).expect("header");
+            if header.type_code != 0x23 {
+                continue;
+            }
+            ellipse_count += 1;
+            let mut reader = record.bit_reader();
+            let _type = reader.read_bs().expect("type");
+            let entity = crate::entities::decode_ellipse(&mut reader).expect("ellipse");
+            assert!((entity.center.0 - 100.0).abs() < 1e-9);
+            assert!((entity.center.1 - 100.0).abs() < 1e-9);
+            assert!((entity.major_axis.0 + 50.0).abs() < 1e-9);
+            assert!((entity.major_axis.1 + 50.0).abs() < 1e-9);
+            assert!((entity.axis_ratio - 0.4242640687119287).abs() < 1e-12);
+        }
+        assert_eq!(ellipse_count, 1);
+    }
+
+    #[test]
+    fn decodes_text_mtext_from_r2004_samples() {
+        let config = ParseConfig::default();
+
+        let text_bytes = std::fs::read("dwg_samples/text_2004.dwg").expect("text sample");
+        let text_index = build_object_index(&text_bytes, &config).expect("text object index");
+        let mut text_count = 0usize;
+        for object in &text_index.objects {
+            let record =
+                parse_object_record(&text_bytes, object.offset, &config).expect("text record");
+            let header =
+                crate::objects::object_header_r2000::parse_from_record(&record).expect("header");
+            if header.type_code != 0x01 {
+                continue;
+            }
+            text_count += 1;
+            let mut reader = record.bit_reader();
+            let _type = reader.read_bs().expect("type");
+            let entity = crate::entities::decode_text(&mut reader).expect("text");
+            assert!(entity.text.contains("Hello"));
+            assert!((entity.insertion.0 - 50.0).abs() < 1e-9);
+            assert!((entity.insertion.1 - 50.0).abs() < 1e-9);
+            assert!((entity.height - 5.0).abs() < 1e-9);
+        }
+        assert_eq!(text_count, 1);
+
+        let mtext_bytes = std::fs::read("dwg_samples/mtext_2004.dwg").expect("mtext sample");
+        let mtext_index = build_object_index(&mtext_bytes, &config).expect("mtext object index");
+        let mut mtext_count = 0usize;
+        for object in &mtext_index.objects {
+            let record =
+                parse_object_record(&mtext_bytes, object.offset, &config).expect("mtext record");
+            let header =
+                crate::objects::object_header_r2000::parse_from_record(&record).expect("header");
+            if header.type_code != 0x2C {
+                continue;
+            }
+            mtext_count += 1;
+            let mut reader = record.bit_reader();
+            let _type = reader.read_bs().expect("type");
+            let entity = crate::entities::decode_mtext(&mut reader).expect("mtext");
+            assert!(entity.text.contains("Hello"));
+            assert!((entity.insertion.0 - 50.0).abs() < 1e-9);
+            assert!((entity.insertion.1 - 50.0).abs() < 1e-9);
+            assert!((entity.text_height - 5.0).abs() < 1e-9);
+            assert!((entity.rect_width - 100.0).abs() < 1e-9);
+        }
+        assert_eq!(mtext_count, 1);
+    }
 }

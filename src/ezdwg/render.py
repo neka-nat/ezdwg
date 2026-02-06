@@ -44,6 +44,8 @@ def plot_layout(
         dxftype = entity.dxftype
         if dxftype == "LINE":
             _draw_line(ax, entity.dxf["start"], entity.dxf["end"], line_width)
+        elif dxftype == "POINT":
+            _draw_point(ax, entity.dxf["location"], line_width)
         elif dxftype == "LWPOLYLINE":
             _draw_polyline(ax, entity.dxf.get("points", []), line_width)
         elif dxftype == "ARC":
@@ -55,6 +57,35 @@ def plot_layout(
                 entity.dxf["end_angle"],
                 arc_segments,
                 line_width,
+            )
+        elif dxftype == "CIRCLE":
+            _draw_circle(ax, entity.dxf["center"], entity.dxf["radius"], arc_segments, line_width)
+        elif dxftype == "ELLIPSE":
+            _draw_ellipse(
+                ax,
+                entity.dxf["center"],
+                entity.dxf["major_axis"],
+                entity.dxf["axis_ratio"],
+                entity.dxf["start_angle"],
+                entity.dxf["end_angle"],
+                arc_segments,
+                line_width,
+            )
+        elif dxftype == "TEXT":
+            _draw_text(
+                ax,
+                entity.dxf.get("insert", (0.0, 0.0, 0.0)),
+                entity.dxf.get("text", ""),
+                entity.dxf.get("height", 1.0),
+                entity.dxf.get("rotation", 0.0),
+            )
+        elif dxftype == "MTEXT":
+            _draw_text(
+                ax,
+                entity.dxf.get("insert", (0.0, 0.0, 0.0)),
+                entity.dxf.get("text", ""),
+                entity.dxf.get("char_height", 1.0),
+                entity.dxf.get("rotation", 0.0),
             )
 
     if title:
@@ -95,6 +126,11 @@ def _draw_line(ax, start, end, line_width: float):
     ax.plot([start[0], end[0]], [start[1], end[1]], linewidth=line_width)
 
 
+def _draw_point(ax, location, line_width: float):
+    size = max(2.0, line_width * 4.0)
+    ax.plot([location[0]], [location[1]], marker="o", markersize=size, linewidth=0)
+
+
 def _draw_polyline(ax, points, line_width: float):
     if not points:
         return
@@ -129,6 +165,55 @@ def _draw_arc(
         xs.append(center[0] + radius * math.cos(angle))
         ys.append(center[1] + radius * math.sin(angle))
     ax.plot(xs, ys, linewidth=line_width)
+
+
+def _draw_circle(ax, center, radius: float, segments: int, line_width: float):
+    _draw_arc(ax, center, radius, 0.0, 360.0, segments, line_width)
+
+
+def _draw_ellipse(
+    ax,
+    center,
+    major_axis,
+    axis_ratio: float,
+    start_angle: float,
+    end_angle: float,
+    segments: int,
+    line_width: float,
+):
+    import math
+
+    if segments < 16:
+        segments = 16
+
+    start = start_angle
+    end = end_angle
+    if end < start:
+        end += math.tau
+
+    mx = major_axis[0]
+    my = major_axis[1]
+    vx = -my * axis_ratio
+    vy = mx * axis_ratio
+
+    step = (end - start) / segments
+    xs = []
+    ys = []
+    for i in range(segments + 1):
+        t = start + step * i
+        c = math.cos(t)
+        s = math.sin(t)
+        xs.append(center[0] + mx * c + vx * s)
+        ys.append(center[1] + my * c + vy * s)
+    ax.plot(xs, ys, linewidth=line_width)
+
+
+def _draw_text(ax, insert, text: str, height: float, rotation_deg: float):
+    if not text:
+        return
+    text = text.replace("\\P", "\n")
+    size = max(6.0, abs(height) * 3.0)
+    ax.text(insert[0], insert[1], text, fontsize=size, rotation=rotation_deg)
 
 
 def _apply_equal_limits(ax):

@@ -237,6 +237,41 @@ pub fn decode_line_entities(
 }
 
 #[pyfunction(signature = (path, limit=None))]
+pub fn decode_point_entities(
+    path: &str,
+    limit: Option<usize>,
+) -> PyResult<Vec<(u64, f64, f64, f64, f64)>> {
+    let bytes = file_open::read_file(path).map_err(to_py_err)?;
+    let decoder = build_decoder(&bytes).map_err(to_py_err)?;
+    let dynamic_types = decoder.dynamic_type_map().map_err(to_py_err)?;
+    let index = decoder.build_object_index().map_err(to_py_err)?;
+    let mut result = Vec::new();
+    for obj in index.objects.iter() {
+        let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
+        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        if !matches_type_name(header.type_code, 0x1B, "POINT", &dynamic_types) {
+            continue;
+        }
+        let mut reader = record.bit_reader();
+        let _type_code = reader.read_bs().map_err(to_py_err)?;
+        let entity = entities::decode_point(&mut reader).map_err(to_py_err)?;
+        result.push((
+            entity.handle,
+            entity.location.0,
+            entity.location.1,
+            entity.location.2,
+            entity.x_axis_angle,
+        ));
+        if let Some(limit) = limit {
+            if result.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(result)
+}
+
+#[pyfunction(signature = (path, limit=None))]
 pub fn decode_arc_entities(
     path: &str,
     limit: Option<usize>,
@@ -263,6 +298,198 @@ pub fn decode_arc_entities(
             entity.radius,
             entity.angle_start,
             entity.angle_end,
+        ));
+        if let Some(limit) = limit {
+            if result.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(result)
+}
+
+#[pyfunction(signature = (path, limit=None))]
+pub fn decode_circle_entities(
+    path: &str,
+    limit: Option<usize>,
+) -> PyResult<Vec<(u64, f64, f64, f64, f64)>> {
+    let bytes = file_open::read_file(path).map_err(to_py_err)?;
+    let decoder = build_decoder(&bytes).map_err(to_py_err)?;
+    let dynamic_types = decoder.dynamic_type_map().map_err(to_py_err)?;
+    let index = decoder.build_object_index().map_err(to_py_err)?;
+    let mut result = Vec::new();
+    for obj in index.objects.iter() {
+        let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
+        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        if !matches_type_name(header.type_code, 0x12, "CIRCLE", &dynamic_types) {
+            continue;
+        }
+        let mut reader = record.bit_reader();
+        let _type_code = reader.read_bs().map_err(to_py_err)?;
+        let entity = entities::decode_circle(&mut reader).map_err(to_py_err)?;
+        result.push((
+            entity.handle,
+            entity.center.0,
+            entity.center.1,
+            entity.center.2,
+            entity.radius,
+        ));
+        if let Some(limit) = limit {
+            if result.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(result)
+}
+
+#[pyfunction(signature = (path, limit=None))]
+pub fn decode_ellipse_entities(
+    path: &str,
+    limit: Option<usize>,
+) -> PyResult<
+    Vec<(
+        u64,
+        (f64, f64, f64),
+        (f64, f64, f64),
+        (f64, f64, f64),
+        f64,
+        f64,
+        f64,
+    )>,
+> {
+    let bytes = file_open::read_file(path).map_err(to_py_err)?;
+    let decoder = build_decoder(&bytes).map_err(to_py_err)?;
+    let dynamic_types = decoder.dynamic_type_map().map_err(to_py_err)?;
+    let index = decoder.build_object_index().map_err(to_py_err)?;
+    let mut result = Vec::new();
+    for obj in index.objects.iter() {
+        let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
+        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        if !matches_type_name(header.type_code, 0x23, "ELLIPSE", &dynamic_types) {
+            continue;
+        }
+        let mut reader = record.bit_reader();
+        let _type_code = reader.read_bs().map_err(to_py_err)?;
+        let entity = entities::decode_ellipse(&mut reader).map_err(to_py_err)?;
+        result.push((
+            entity.handle,
+            entity.center,
+            entity.major_axis,
+            entity.extrusion,
+            entity.axis_ratio,
+            entity.start_angle,
+            entity.end_angle,
+        ));
+        if let Some(limit) = limit {
+            if result.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(result)
+}
+
+#[pyfunction(signature = (path, limit=None))]
+pub fn decode_text_entities(
+    path: &str,
+    limit: Option<usize>,
+) -> PyResult<
+    Vec<(
+        u64,
+        String,
+        (f64, f64, f64),
+        Option<(f64, f64, f64)>,
+        (f64, f64, f64),
+        (f64, f64, f64, f64, f64),
+        (u16, u16, u16),
+        Option<u64>,
+    )>,
+> {
+    let bytes = file_open::read_file(path).map_err(to_py_err)?;
+    let decoder = build_decoder(&bytes).map_err(to_py_err)?;
+    let dynamic_types = decoder.dynamic_type_map().map_err(to_py_err)?;
+    let index = decoder.build_object_index().map_err(to_py_err)?;
+    let mut result = Vec::new();
+    for obj in index.objects.iter() {
+        let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
+        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        if !matches_type_name(header.type_code, 0x01, "TEXT", &dynamic_types) {
+            continue;
+        }
+        let mut reader = record.bit_reader();
+        let _type_code = reader.read_bs().map_err(to_py_err)?;
+        let entity = entities::decode_text(&mut reader).map_err(to_py_err)?;
+        result.push((
+            entity.handle,
+            entity.text,
+            entity.insertion,
+            entity.alignment,
+            entity.extrusion,
+            (
+                entity.thickness,
+                entity.oblique_angle,
+                entity.height,
+                entity.rotation,
+                entity.width_factor,
+            ),
+            (
+                entity.generation,
+                entity.horizontal_alignment,
+                entity.vertical_alignment,
+            ),
+            entity.style_handle,
+        ));
+        if let Some(limit) = limit {
+            if result.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(result)
+}
+
+#[pyfunction(signature = (path, limit=None))]
+pub fn decode_mtext_entities(
+    path: &str,
+    limit: Option<usize>,
+) -> PyResult<
+    Vec<(
+        u64,
+        String,
+        (f64, f64, f64),
+        (f64, f64, f64),
+        (f64, f64, f64),
+        f64,
+        f64,
+        u16,
+        u16,
+    )>,
+> {
+    let bytes = file_open::read_file(path).map_err(to_py_err)?;
+    let decoder = build_decoder(&bytes).map_err(to_py_err)?;
+    let dynamic_types = decoder.dynamic_type_map().map_err(to_py_err)?;
+    let index = decoder.build_object_index().map_err(to_py_err)?;
+    let mut result = Vec::new();
+    for obj in index.objects.iter() {
+        let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
+        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        if !matches_type_name(header.type_code, 0x2C, "MTEXT", &dynamic_types) {
+            continue;
+        }
+        let mut reader = record.bit_reader();
+        let _type_code = reader.read_bs().map_err(to_py_err)?;
+        let entity = entities::decode_mtext(&mut reader).map_err(to_py_err)?;
+        result.push((
+            entity.handle,
+            entity.text,
+            entity.insertion,
+            entity.extrusion,
+            entity.x_axis_dir,
+            entity.rect_width,
+            entity.text_height,
+            entity.attachment,
+            entity.drawing_dir,
         ));
         if let Some(limit) = limit {
             if result.len() >= limit {
@@ -840,7 +1067,12 @@ pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(list_object_headers_by_type, module)?)?;
     module.add_function(wrap_pyfunction!(read_object_records_by_type, module)?)?;
     module.add_function(wrap_pyfunction!(decode_line_entities, module)?)?;
+    module.add_function(wrap_pyfunction!(decode_point_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_arc_entities, module)?)?;
+    module.add_function(wrap_pyfunction!(decode_circle_entities, module)?)?;
+    module.add_function(wrap_pyfunction!(decode_ellipse_entities, module)?)?;
+    module.add_function(wrap_pyfunction!(decode_text_entities, module)?)?;
+    module.add_function(wrap_pyfunction!(decode_mtext_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_insert_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_polyline_2d_entities, module)?)?;
     module.add_function(wrap_pyfunction!(
@@ -944,12 +1176,17 @@ fn matches_type_filter(filter: &HashSet<u16>, type_code: u16, resolved_name: &st
 
 fn builtin_code_from_name(name: &str) -> Option<u16> {
     match name {
+        "TEXT" => Some(0x01),
         "SEQEND" => Some(0x06),
         "INSERT" => Some(0x07),
         "VERTEX_2D" => Some(0x0A),
+        "CIRCLE" => Some(0x12),
         "POLYLINE_2D" => Some(0x0F),
         "ARC" => Some(0x11),
         "LINE" => Some(0x13),
+        "POINT" => Some(0x1B),
+        "ELLIPSE" => Some(0x23),
+        "MTEXT" => Some(0x2C),
         "LWPOLYLINE" => Some(0x4D),
         _ => None,
     }
