@@ -1,6 +1,10 @@
 use crate::bit::{BitReader, Endian};
+use crate::core::error::ErrorKind;
 use crate::core::result::Result;
-use crate::entities::common::{parse_common_entity_handles, parse_common_entity_header};
+use crate::entities::common::{
+    parse_common_entity_handles, parse_common_entity_header, parse_common_entity_header_r2007,
+    parse_common_entity_layer_handle, CommonEntityHeader,
+};
 
 #[derive(Debug, Clone)]
 pub struct LineEntity {
@@ -14,7 +18,20 @@ pub struct LineEntity {
 
 pub fn decode_line(reader: &mut BitReader<'_>) -> Result<LineEntity> {
     let header = parse_common_entity_header(reader)?;
+    decode_line_with_header(reader, header, false, false)
+}
 
+pub fn decode_line_r2007(reader: &mut BitReader<'_>) -> Result<LineEntity> {
+    let header = parse_common_entity_header_r2007(reader)?;
+    decode_line_with_header(reader, header, true, true)
+}
+
+fn decode_line_with_header(
+    reader: &mut BitReader<'_>,
+    header: CommonEntityHeader,
+    allow_handle_decode_failure: bool,
+    r2007_layer_only: bool,
+) -> Result<LineEntity> {
     let z_is_zero = reader.read_b()?;
     let x_start = reader.read_rd(Endian::Little)?;
     let x_end = reader.read_dd(x_start)?;
@@ -31,13 +48,26 @@ pub fn decode_line(reader: &mut BitReader<'_>) -> Result<LineEntity> {
 
     let _thickness = reader.read_bt()?;
     let _extrusion = reader.read_be()?;
-    let common_handles = parse_common_entity_handles(reader, &header)?;
+    let layer_handle = match if r2007_layer_only {
+        parse_common_entity_layer_handle(reader, &header)
+    } else {
+        parse_common_entity_handles(reader, &header).map(|common_handles| common_handles.layer)
+    } {
+        Ok(layer_handle) => layer_handle,
+        Err(err)
+            if allow_handle_decode_failure
+                && matches!(err.kind, ErrorKind::Format | ErrorKind::Decode | ErrorKind::Io) =>
+        {
+            0
+        }
+        Err(err) => return Err(err),
+    };
 
     Ok(LineEntity {
         handle: header.handle,
         color_index: header.color.index,
         true_color: header.color.true_color,
-        layer_handle: common_handles.layer,
+        layer_handle,
         start: (x_start, y_start, z_start),
         end: (x_end, y_end, z_end),
     })

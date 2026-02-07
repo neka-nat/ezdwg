@@ -18,6 +18,7 @@ pub struct CommonEntityHeader {
     pub xdic_missing_flag: u8,
     pub ltype_flags: u8,
     pub plotstyle_flags: u8,
+    pub material_flags: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -28,9 +29,21 @@ pub struct CommonEntityHandles {
     pub layer: u64,
     pub ltype: Option<u64>,
     pub plotstyle: Option<u64>,
+    pub material: Option<u64>,
 }
 
 pub fn parse_common_entity_header(reader: &mut BitReader<'_>) -> Result<CommonEntityHeader> {
+    parse_common_entity_header_impl(reader, false)
+}
+
+pub fn parse_common_entity_header_r2007(reader: &mut BitReader<'_>) -> Result<CommonEntityHeader> {
+    parse_common_entity_header_impl(reader, true)
+}
+
+fn parse_common_entity_header_impl(
+    reader: &mut BitReader<'_>,
+    with_material_and_shadow: bool,
+) -> Result<CommonEntityHeader> {
     let obj_size = reader.read_rl(Endian::Little)?;
     let handle = reader.read_h()?.value;
 
@@ -81,6 +94,13 @@ pub fn parse_common_entity_header(reader: &mut BitReader<'_>) -> Result<CommonEn
     let _ltype_scale = reader.read_bd()?;
     let ltype_flags = reader.read_bb()?;
     let plotstyle_flags = reader.read_bb()?;
+    let material_flags = if with_material_and_shadow {
+        let flags = reader.read_bb()?;
+        let _shadow_flags = reader.read_rc()?;
+        flags
+    } else {
+        0
+    };
 
     let _invisibility = reader.read_bs()?;
     let _line_weight = reader.read_rc()?;
@@ -94,6 +114,7 @@ pub fn parse_common_entity_header(reader: &mut BitReader<'_>) -> Result<CommonEn
         xdic_missing_flag,
         ltype_flags,
         plotstyle_flags,
+        material_flags,
     })
 }
 
@@ -132,6 +153,12 @@ pub fn parse_common_entity_handles(
         None
     };
 
+    let material = if header.material_flags == 3 {
+        Some(read_handle_reference(reader, header.handle)?)
+    } else {
+        None
+    };
+
     Ok(CommonEntityHandles {
         owner_ref,
         reactors,
@@ -139,7 +166,27 @@ pub fn parse_common_entity_handles(
         layer,
         ltype,
         plotstyle,
+        material,
     })
+}
+
+pub fn parse_common_entity_layer_handle(
+    reader: &mut BitReader<'_>,
+    header: &CommonEntityHeader,
+) -> Result<u64> {
+    if header.entity_mode == 0 {
+        let _owner_ref = read_handle_reference(reader, header.handle)?;
+    }
+
+    for _ in 0..header.num_of_reactors {
+        let _reactor = read_handle_reference(reader, header.handle)?;
+    }
+
+    if header.xdic_missing_flag == 0 {
+        let _xdic_obj = read_handle_reference(reader, header.handle)?;
+    }
+
+    read_handle_reference(reader, header.handle)
 }
 
 pub fn read_handle_reference(reader: &mut BitReader<'_>, base_handle: u64) -> Result<u64> {

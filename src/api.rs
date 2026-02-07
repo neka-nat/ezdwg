@@ -207,6 +207,7 @@ pub fn decode_entity_styles(
 ) -> PyResult<Vec<(u64, Option<u16>, Option<u32>, u64)>> {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
+    let is_r2007 = matches!(decoder.version(), version::DwgVersion::R2007);
     let best_effort = is_best_effort_compat_version(&decoder);
     let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
     let index = decoder.build_object_index().map_err(to_py_err)?;
@@ -226,7 +227,11 @@ pub fn decode_entity_styles(
             return Err(to_py_err(err));
         }
         if matches_type_name(header.type_code, 0x13, "LINE", &dynamic_types) {
-            let entity = match entities::decode_line(&mut reader) {
+            let entity = match if is_r2007 {
+                entities::decode_line_r2007(&mut reader)
+            } else {
+                entities::decode_line(&mut reader)
+            } {
                 Ok(entity) => entity,
                 Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
                 Err(err) => return Err(to_py_err(err)),
@@ -250,7 +255,11 @@ pub fn decode_entity_styles(
                 entity.layer_handle,
             ));
         } else if matches_type_name(header.type_code, 0x11, "ARC", &dynamic_types) {
-            let entity = match entities::decode_arc(&mut reader) {
+            let entity = match if is_r2007 {
+                entities::decode_arc_r2007(&mut reader)
+            } else {
+                entities::decode_arc(&mut reader)
+            } {
                 Ok(entity) => entity,
                 Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
                 Err(err) => return Err(to_py_err(err)),
@@ -310,7 +319,11 @@ pub fn decode_entity_styles(
                 entity.layer_handle,
             ));
         } else if matches_type_name(header.type_code, 0x4D, "LWPOLYLINE", &dynamic_types) {
-            let entity = match entities::decode_lwpolyline(&mut reader) {
+            let entity = match if is_r2007 {
+                entities::decode_lwpolyline_r2007(&mut reader)
+            } else {
+                entities::decode_lwpolyline(&mut reader)
+            } {
                 Ok(entity) => entity,
                 Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
                 Err(err) => return Err(to_py_err(err)),
@@ -425,6 +438,7 @@ pub fn decode_line_entities(
 ) -> PyResult<Vec<(u64, f64, f64, f64, f64, f64, f64)>> {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
+    let is_r2007 = matches!(decoder.version(), version::DwgVersion::R2007);
     let best_effort = is_best_effort_compat_version(&decoder);
     let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
     let index = decoder.build_object_index().map_err(to_py_err)?;
@@ -444,7 +458,11 @@ pub fn decode_line_entities(
             }
             return Err(to_py_err(err));
         }
-        let entity = match entities::decode_line(&mut reader) {
+        let entity = match if is_r2007 {
+            entities::decode_line_r2007(&mut reader)
+        } else {
+            entities::decode_line(&mut reader)
+        } {
             Ok(entity) => entity,
             Err(err) if best_effort => continue,
             Err(err) => return Err(to_py_err(err)),
@@ -521,6 +539,7 @@ pub fn decode_arc_entities(
 ) -> PyResult<Vec<(u64, f64, f64, f64, f64, f64, f64)>> {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
+    let is_r2007 = matches!(decoder.version(), version::DwgVersion::R2007);
     let best_effort = is_best_effort_compat_version(&decoder);
     let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
     let index = decoder.build_object_index().map_err(to_py_err)?;
@@ -540,7 +559,11 @@ pub fn decode_arc_entities(
             }
             return Err(to_py_err(err));
         }
-        let entity = match entities::decode_arc(&mut reader) {
+        let entity = match if is_r2007 {
+            entities::decode_arc_r2007(&mut reader)
+        } else {
+            entities::decode_arc(&mut reader)
+        } {
             Ok(entity) => entity,
             Err(err) if best_effort => continue,
             Err(err) => return Err(to_py_err(err)),
@@ -1184,6 +1207,7 @@ pub fn decode_lwpolyline_entities(
 ) -> PyResult<Vec<(u64, u16, Vec<(f64, f64)>)>> {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
+    let is_r2007 = matches!(decoder.version(), version::DwgVersion::R2007);
     let best_effort = is_best_effort_compat_version(&decoder);
     let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
     let index = decoder.build_object_index().map_err(to_py_err)?;
@@ -1203,7 +1227,11 @@ pub fn decode_lwpolyline_entities(
             }
             return Err(to_py_err(err));
         }
-        let entity = match entities::decode_lwpolyline(&mut reader) {
+        let entity = match if is_r2007 {
+            entities::decode_lwpolyline_r2007(&mut reader)
+        } else {
+            entities::decode_lwpolyline(&mut reader)
+        } {
             Ok(entity) => entity,
             Err(err) if best_effort => continue,
             Err(err) => return Err(to_py_err(err)),
