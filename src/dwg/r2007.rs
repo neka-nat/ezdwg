@@ -1333,7 +1333,9 @@ mod tests {
     fn ensure_supported_accepts_r2007() {
         let bytes = std::fs::read("dwg_samples/line_2007.dwg").expect("sample file");
         let decoder = Decoder::new(&bytes, Default::default()).expect("decoder");
-        decoder.ensure_supported().expect("R2007 should be supported");
+        decoder
+            .ensure_supported()
+            .expect("R2007 should be supported");
     }
 
     #[test]

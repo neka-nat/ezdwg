@@ -19,6 +19,9 @@ pub struct CommonEntityHeader {
     pub ltype_flags: u8,
     pub plotstyle_flags: u8,
     pub material_flags: u8,
+    pub has_full_visual_style: bool,
+    pub has_face_visual_style: bool,
+    pub has_edge_visual_style: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -33,18 +36,30 @@ pub struct CommonEntityHandles {
 }
 
 pub fn parse_common_entity_header(reader: &mut BitReader<'_>) -> Result<CommonEntityHeader> {
-    parse_common_entity_header_impl(reader, false)
+    parse_common_entity_header_impl(reader, false, false, None)
 }
 
 pub fn parse_common_entity_header_r2007(reader: &mut BitReader<'_>) -> Result<CommonEntityHeader> {
-    parse_common_entity_header_impl(reader, true)
+    parse_common_entity_header_impl(reader, true, false, None)
+}
+
+pub fn parse_common_entity_header_r2010(
+    reader: &mut BitReader<'_>,
+    object_data_end_bit: u32,
+) -> Result<CommonEntityHeader> {
+    parse_common_entity_header_impl(reader, true, true, Some(object_data_end_bit))
 }
 
 fn parse_common_entity_header_impl(
     reader: &mut BitReader<'_>,
     with_material_and_shadow: bool,
+    r2010_plus: bool,
+    object_data_end_bit: Option<u32>,
 ) -> Result<CommonEntityHeader> {
-    let obj_size = reader.read_rl(Endian::Little)?;
+    let obj_size = match object_data_end_bit {
+        Some(bits) => bits,
+        None => reader.read_rl(Endian::Little)?,
+    };
     let handle = reader.read_h()?.value;
 
     let mut ext_size = reader.read_bs()?;
@@ -62,7 +77,11 @@ fn parse_common_entity_header_impl(
 
     let graphic_present_flag = reader.read_b()?;
     if graphic_present_flag == 1 {
-        let graphic_size = reader.read_rl(Endian::Little)? as usize;
+        let graphic_size = if r2010_plus {
+            reader.read_bll()? as usize
+        } else {
+            reader.read_rl(Endian::Little)? as usize
+        };
         let _ = reader.read_rcs(graphic_size)?;
     }
 
@@ -101,6 +120,15 @@ fn parse_common_entity_header_impl(
     } else {
         0
     };
+    let (has_full_visual_style, has_face_visual_style, has_edge_visual_style) = if r2010_plus {
+        (
+            reader.read_b()? != 0,
+            reader.read_b()? != 0,
+            reader.read_b()? != 0,
+        )
+    } else {
+        (false, false, false)
+    };
 
     let _invisibility = reader.read_bs()?;
     let _line_weight = reader.read_rc()?;
@@ -115,6 +143,9 @@ fn parse_common_entity_header_impl(
         ltype_flags,
         plotstyle_flags,
         material_flags,
+        has_full_visual_style,
+        has_face_visual_style,
+        has_edge_visual_style,
     })
 }
 
@@ -158,6 +189,16 @@ pub fn parse_common_entity_handles(
     } else {
         None
     };
+
+    if header.has_full_visual_style {
+        let _full_visual_style = read_handle_reference(reader, header.handle)?;
+    }
+    if header.has_face_visual_style {
+        let _face_visual_style = read_handle_reference(reader, header.handle)?;
+    }
+    if header.has_edge_visual_style {
+        let _edge_visual_style = read_handle_reference(reader, header.handle)?;
+    }
 
     Ok(CommonEntityHandles {
         owner_ref,

@@ -72,15 +72,7 @@ impl<'a> BitReader<'a> {
     }
 
     pub fn read_3b(&mut self) -> Result<u8> {
-        let mut value = 0u8;
-        for _ in 0..3 {
-            let bit = self.read_b()?;
-            if bit == 0 {
-                break;
-            }
-            value = (value << 1) | bit;
-        }
-        Ok(value & 0x07)
+        Ok(self.read_bits_msb(3)? as u8)
     }
 
     pub fn read_bits_msb(&mut self, n: u8) -> Result<u64> {
@@ -257,6 +249,15 @@ impl<'a> BitReader<'a> {
         Ok(value)
     }
 
+    pub fn read_bll(&mut self) -> Result<u64> {
+        let length = self.read_3b()? as usize;
+        let mut value = 0u64;
+        for _ in 0..length {
+            value = (value << 8) | self.read_rc()? as u64;
+        }
+        Ok(value)
+    }
+
     pub fn read_ms(&mut self) -> Result<u32> {
         let mut value: u32 = 0;
         let mut shift = 0;
@@ -298,6 +299,34 @@ impl<'a> BitReader<'a> {
         }
 
         Ok(value)
+    }
+
+    pub fn read_umc(&mut self) -> Result<u32> {
+        let mut value: u32 = 0;
+        let mut shift = 0u32;
+
+        for _ in 0..5 {
+            let byte = self.read_rc()?;
+            let chunk = (byte & 0x7F) as u32;
+            value |= chunk << shift;
+            if (byte & 0x80) == 0 {
+                return Ok(value);
+            }
+            shift += 7;
+        }
+
+        Ok(value)
+    }
+
+    pub fn read_ot_r2010(&mut self) -> Result<u16> {
+        let opcode = self.read_bb()?;
+        let type_code = match opcode {
+            0 => self.read_rc()? as u16,
+            1 => self.read_rc()? as u16 + 0x01F0,
+            2 | 3 => self.read_rs(Endian::Little)?,
+            _ => 0,
+        };
+        Ok(type_code)
     }
 
     pub fn read_h(&mut self) -> Result<HandleRef> {

@@ -78,7 +78,8 @@ pub fn list_object_headers(
     let mut result = Vec::new();
     for obj in index.objects.iter() {
         let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let header =
+            parse_object_header_for_version(&record, decoder.version()).map_err(to_py_err)?;
         result.push((obj.handle.0, obj.offset, header.data_size, header.type_code));
         if let Some(limit) = limit {
             if result.len() >= limit {
@@ -101,7 +102,8 @@ pub fn list_object_headers_with_type(
     let mut result = Vec::new();
     for obj in index.objects.iter() {
         let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let header =
+            parse_object_header_for_version(&record, decoder.version()).map_err(to_py_err)?;
         let type_name = resolved_type_name(header.type_code, &dynamic_types);
         let type_class = resolved_type_class(header.type_code, &type_name);
         result.push((
@@ -138,7 +140,8 @@ pub fn list_object_headers_by_type(
     let mut result = Vec::new();
     for obj in index.objects.iter() {
         let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let header =
+            parse_object_header_for_version(&record, decoder.version()).map_err(to_py_err)?;
         let type_name = resolved_type_name(header.type_code, &dynamic_types);
         if !matches_type_filter(&filter, header.type_code, &type_name) {
             continue;
@@ -178,7 +181,8 @@ pub fn read_object_records_by_type(
     let mut result = Vec::new();
     for obj in index.objects.iter() {
         let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let header =
+            parse_object_header_for_version(&record, decoder.version()).map_err(to_py_err)?;
         let type_name = resolved_type_name(header.type_code, &dynamic_types);
         if !matches_type_filter(&filter, header.type_code, &type_name) {
             continue;
@@ -207,7 +211,6 @@ pub fn decode_entity_styles(
 ) -> PyResult<Vec<(u64, Option<u16>, Option<u32>, u64)>> {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
-    let is_r2007 = matches!(decoder.version(), version::DwgVersion::R2007);
     let best_effort = is_best_effort_compat_version(&decoder);
     let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
     let index = decoder.build_object_index().map_err(to_py_err)?;
@@ -220,18 +223,14 @@ pub fn decode_entity_styles(
         };
 
         let mut reader = record.bit_reader();
-        if let Err(err) = reader.read_bs() {
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
             if best_effort {
                 continue;
             }
             return Err(to_py_err(err));
         }
         if matches_type_name(header.type_code, 0x13, "LINE", &dynamic_types) {
-            let entity = match if is_r2007 {
-                entities::decode_line_r2007(&mut reader)
-            } else {
-                entities::decode_line(&mut reader)
-            } {
+            let entity = match decode_line_for_version(&mut reader, decoder.version(), &header) {
                 Ok(entity) => entity,
                 Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
                 Err(err) => return Err(to_py_err(err)),
@@ -255,11 +254,7 @@ pub fn decode_entity_styles(
                 entity.layer_handle,
             ));
         } else if matches_type_name(header.type_code, 0x11, "ARC", &dynamic_types) {
-            let entity = match if is_r2007 {
-                entities::decode_arc_r2007(&mut reader)
-            } else {
-                entities::decode_arc(&mut reader)
-            } {
+            let entity = match decode_arc_for_version(&mut reader, decoder.version(), &header) {
                 Ok(entity) => entity,
                 Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
                 Err(err) => return Err(to_py_err(err)),
@@ -319,15 +314,12 @@ pub fn decode_entity_styles(
                 entity.layer_handle,
             ));
         } else if matches_type_name(header.type_code, 0x4D, "LWPOLYLINE", &dynamic_types) {
-            let entity = match if is_r2007 {
-                entities::decode_lwpolyline_r2007(&mut reader)
-            } else {
-                entities::decode_lwpolyline(&mut reader)
-            } {
-                Ok(entity) => entity,
-                Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
-                Err(err) => return Err(to_py_err(err)),
-            };
+            let entity =
+                match decode_lwpolyline_for_version(&mut reader, decoder.version(), &header) {
+                    Ok(entity) => entity,
+                    Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
+                    Err(err) => return Err(to_py_err(err)),
+                };
             result.push((
                 entity.handle,
                 entity.color_index,
@@ -409,7 +401,7 @@ pub fn decode_layer_colors(
         }
 
         let mut reader = record.bit_reader();
-        if let Err(err) = reader.read_bs() {
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
             if best_effort {
                 continue;
             }
@@ -438,7 +430,6 @@ pub fn decode_line_entities(
 ) -> PyResult<Vec<(u64, f64, f64, f64, f64, f64, f64)>> {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
-    let is_r2007 = matches!(decoder.version(), version::DwgVersion::R2007);
     let best_effort = is_best_effort_compat_version(&decoder);
     let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
     let index = decoder.build_object_index().map_err(to_py_err)?;
@@ -452,17 +443,13 @@ pub fn decode_line_entities(
             continue;
         }
         let mut reader = record.bit_reader();
-        if let Err(err) = reader.read_bs() {
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
             if best_effort {
                 continue;
             }
             return Err(to_py_err(err));
         }
-        let entity = match if is_r2007 {
-            entities::decode_line_r2007(&mut reader)
-        } else {
-            entities::decode_line(&mut reader)
-        } {
+        let entity = match decode_line_for_version(&mut reader, decoder.version(), &header) {
             Ok(entity) => entity,
             Err(err) if best_effort => continue,
             Err(err) => return Err(to_py_err(err)),
@@ -505,7 +492,7 @@ pub fn decode_point_entities(
             continue;
         }
         let mut reader = record.bit_reader();
-        if let Err(err) = reader.read_bs() {
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
             if best_effort {
                 continue;
             }
@@ -539,7 +526,6 @@ pub fn decode_arc_entities(
 ) -> PyResult<Vec<(u64, f64, f64, f64, f64, f64, f64)>> {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
-    let is_r2007 = matches!(decoder.version(), version::DwgVersion::R2007);
     let best_effort = is_best_effort_compat_version(&decoder);
     let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
     let index = decoder.build_object_index().map_err(to_py_err)?;
@@ -553,17 +539,13 @@ pub fn decode_arc_entities(
             continue;
         }
         let mut reader = record.bit_reader();
-        if let Err(err) = reader.read_bs() {
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
             if best_effort {
                 continue;
             }
             return Err(to_py_err(err));
         }
-        let entity = match if is_r2007 {
-            entities::decode_arc_r2007(&mut reader)
-        } else {
-            entities::decode_arc(&mut reader)
-        } {
+        let entity = match decode_arc_for_version(&mut reader, decoder.version(), &header) {
             Ok(entity) => entity,
             Err(err) if best_effort => continue,
             Err(err) => return Err(to_py_err(err)),
@@ -606,7 +588,7 @@ pub fn decode_circle_entities(
             continue;
         }
         let mut reader = record.bit_reader();
-        if let Err(err) = reader.read_bs() {
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
             if best_effort {
                 continue;
             }
@@ -663,7 +645,7 @@ pub fn decode_ellipse_entities(
             continue;
         }
         let mut reader = record.bit_reader();
-        if let Err(err) = reader.read_bs() {
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
             if best_effort {
                 continue;
             }
@@ -723,7 +705,7 @@ pub fn decode_text_entities(
             continue;
         }
         let mut reader = record.bit_reader();
-        if let Err(err) = reader.read_bs() {
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
             if best_effort {
                 continue;
             }
@@ -795,7 +777,7 @@ pub fn decode_mtext_entities(
             continue;
         }
         let mut reader = record.bit_reader();
-        if let Err(err) = reader.read_bs() {
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
             if best_effort {
                 continue;
             }
@@ -860,7 +842,7 @@ pub fn decode_dim_linear_entities(
             continue;
         }
         let mut reader = record.bit_reader();
-        if let Err(err) = reader.read_bs() {
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
             if best_effort {
                 continue;
             }
@@ -940,7 +922,7 @@ pub fn decode_dim_diameter_entities(
             continue;
         }
         let mut reader = record.bit_reader();
-        if let Err(err) = reader.read_bs() {
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
             if best_effort {
                 continue;
             }
@@ -1020,7 +1002,7 @@ pub fn decode_dim_radius_entities(
             continue;
         }
         let mut reader = record.bit_reader();
-        if let Err(err) = reader.read_bs() {
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
             if best_effort {
                 continue;
             }
@@ -1078,12 +1060,14 @@ pub fn decode_insert_entities(
     let mut result = Vec::new();
     for obj in index.objects.iter() {
         let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let header =
+            parse_object_header_for_version(&record, decoder.version()).map_err(to_py_err)?;
         if !matches_type_name(header.type_code, 0x07, "INSERT", &dynamic_types) {
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
+        let _type_code =
+            skip_object_type_prefix(&mut reader, decoder.version()).map_err(to_py_err)?;
         let entity = entities::decode_insert(&mut reader).map_err(to_py_err)?;
         result.push((
             entity.handle,
@@ -1116,12 +1100,14 @@ pub fn decode_polyline_2d_entities(
     let mut result = Vec::new();
     for obj in index.objects.iter() {
         let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let header =
+            parse_object_header_for_version(&record, decoder.version()).map_err(to_py_err)?;
         if !matches_type_name(header.type_code, 0x0F, "POLYLINE_2D", &dynamic_types) {
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
+        let _type_code =
+            skip_object_type_prefix(&mut reader, decoder.version()).map_err(to_py_err)?;
         let entity = entities::decode_polyline_2d(&mut reader).map_err(to_py_err)?;
         result.push((
             entity.handle,
@@ -1168,12 +1154,14 @@ pub fn decode_polyline_2d_entities_interpreted(
     let mut result = Vec::new();
     for obj in index.objects.iter() {
         let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let header =
+            parse_object_header_for_version(&record, decoder.version()).map_err(to_py_err)?;
         if !matches_type_name(header.type_code, 0x0F, "POLYLINE_2D", &dynamic_types) {
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
+        let _type_code =
+            skip_object_type_prefix(&mut reader, decoder.version()).map_err(to_py_err)?;
         let entity = entities::decode_polyline_2d(&mut reader).map_err(to_py_err)?;
         let info = entity.flags_info;
         let curve_label = entity.curve_type_info.label().to_string();
@@ -1207,7 +1195,6 @@ pub fn decode_lwpolyline_entities(
 ) -> PyResult<Vec<(u64, u16, Vec<(f64, f64)>)>> {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
-    let is_r2007 = matches!(decoder.version(), version::DwgVersion::R2007);
     let best_effort = is_best_effort_compat_version(&decoder);
     let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
     let index = decoder.build_object_index().map_err(to_py_err)?;
@@ -1221,17 +1208,13 @@ pub fn decode_lwpolyline_entities(
             continue;
         }
         let mut reader = record.bit_reader();
-        if let Err(err) = reader.read_bs() {
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
             if best_effort {
                 continue;
             }
             return Err(to_py_err(err));
         }
-        let entity = match if is_r2007 {
-            entities::decode_lwpolyline_r2007(&mut reader)
-        } else {
-            entities::decode_lwpolyline(&mut reader)
-        } {
+        let entity = match decode_lwpolyline_for_version(&mut reader, decoder.version(), &header) {
             Ok(entity) => entity,
             Err(err) if best_effort => continue,
             Err(err) => return Err(to_py_err(err)),
@@ -1261,12 +1244,14 @@ pub fn decode_polyline_2d_with_vertices(
     let mut vertex_map = std::collections::HashMap::new();
     for obj in sorted.iter() {
         let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let header =
+            parse_object_header_for_version(&record, decoder.version()).map_err(to_py_err)?;
         if !matches_type_name(header.type_code, 0x0A, "VERTEX_2D", &dynamic_types) {
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
+        let _type_code =
+            skip_object_type_prefix(&mut reader, decoder.version()).map_err(to_py_err)?;
         let vertex = entities::decode_vertex_2d(&mut reader).map_err(to_py_err)?;
         vertex_map.insert(vertex.handle, vertex);
     }
@@ -1276,13 +1261,15 @@ pub fn decode_polyline_2d_with_vertices(
     while i < sorted.len() {
         let obj = sorted[i];
         let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let header =
+            parse_object_header_for_version(&record, decoder.version()).map_err(to_py_err)?;
         if !matches_type_name(header.type_code, 0x0F, "POLYLINE_2D", &dynamic_types) {
             i += 1;
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
+        let _type_code =
+            skip_object_type_prefix(&mut reader, decoder.version()).map_err(to_py_err)?;
         let poly = entities::decode_polyline_2d(&mut reader).map_err(to_py_err)?;
         let mut vertices: Vec<(f64, f64, f64)> = Vec::new();
         let use_vertex_z = poly.flags_info.is_3d_polyline
@@ -1308,11 +1295,12 @@ pub fn decode_polyline_2d_with_vertices(
                 let next_record = decoder
                     .parse_object_record(next.offset)
                     .map_err(to_py_err)?;
-                let next_header = objects::object_header_r2000::parse_from_record(&next_record)
+                let next_header = parse_object_header_for_version(&next_record, decoder.version())
                     .map_err(to_py_err)?;
                 let mut next_reader = next_record.bit_reader();
                 if matches_type_name(next_header.type_code, 0x0A, "VERTEX_2D", &dynamic_types) {
-                    let _next_type = next_reader.read_bs().map_err(to_py_err)?;
+                    let _next_type = skip_object_type_prefix(&mut next_reader, decoder.version())
+                        .map_err(to_py_err)?;
                     let vertex = entities::decode_vertex_2d(&mut next_reader).map_err(to_py_err)?;
                     let z = if use_vertex_z {
                         vertex.position.2
@@ -1324,7 +1312,8 @@ pub fn decode_polyline_2d_with_vertices(
                     continue;
                 }
                 if matches_type_name(next_header.type_code, 0x06, "SEQEND", &dynamic_types) {
-                    let _next_type = next_reader.read_bs().map_err(to_py_err)?;
+                    let _next_type = skip_object_type_prefix(&mut next_reader, decoder.version())
+                        .map_err(to_py_err)?;
                     let _seqend = entities::decode_seqend(&mut next_reader).map_err(to_py_err)?;
                     j += 1;
                 }
@@ -1368,12 +1357,14 @@ pub fn decode_polyline_2d_with_vertices_interpolated(
     let mut vertex_map = std::collections::HashMap::new();
     for obj in sorted.iter() {
         let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let header =
+            parse_object_header_for_version(&record, decoder.version()).map_err(to_py_err)?;
         if !matches_type_name(header.type_code, 0x0A, "VERTEX_2D", &dynamic_types) {
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
+        let _type_code =
+            skip_object_type_prefix(&mut reader, decoder.version()).map_err(to_py_err)?;
         let vertex = entities::decode_vertex_2d(&mut reader).map_err(to_py_err)?;
         vertex_map.insert(vertex.handle, vertex);
     }
@@ -1383,13 +1374,15 @@ pub fn decode_polyline_2d_with_vertices_interpolated(
     while i < sorted.len() {
         let obj = sorted[i];
         let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let header =
+            parse_object_header_for_version(&record, decoder.version()).map_err(to_py_err)?;
         if !matches_type_name(header.type_code, 0x0F, "POLYLINE_2D", &dynamic_types) {
             i += 1;
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
+        let _type_code =
+            skip_object_type_prefix(&mut reader, decoder.version()).map_err(to_py_err)?;
         let poly = entities::decode_polyline_2d(&mut reader).map_err(to_py_err)?;
         let mut vertices: Vec<(f64, f64, f64)> = Vec::new();
         let use_vertex_z = poly.flags_info.is_3d_polyline
@@ -1415,11 +1408,12 @@ pub fn decode_polyline_2d_with_vertices_interpolated(
                 let next_record = decoder
                     .parse_object_record(next.offset)
                     .map_err(to_py_err)?;
-                let next_header = objects::object_header_r2000::parse_from_record(&next_record)
+                let next_header = parse_object_header_for_version(&next_record, decoder.version())
                     .map_err(to_py_err)?;
                 let mut next_reader = next_record.bit_reader();
                 if matches_type_name(next_header.type_code, 0x0A, "VERTEX_2D", &dynamic_types) {
-                    let _next_type = next_reader.read_bs().map_err(to_py_err)?;
+                    let _next_type = skip_object_type_prefix(&mut next_reader, decoder.version())
+                        .map_err(to_py_err)?;
                     let vertex = entities::decode_vertex_2d(&mut next_reader).map_err(to_py_err)?;
                     let z = if use_vertex_z {
                         vertex.position.2
@@ -1431,7 +1425,8 @@ pub fn decode_polyline_2d_with_vertices_interpolated(
                     continue;
                 }
                 if matches_type_name(next_header.type_code, 0x06, "SEQEND", &dynamic_types) {
-                    let _next_type = next_reader.read_bs().map_err(to_py_err)?;
+                    let _next_type = skip_object_type_prefix(&mut next_reader, decoder.version())
+                        .map_err(to_py_err)?;
                     let _seqend = entities::decode_seqend(&mut next_reader).map_err(to_py_err)?;
                     j += 1;
                 }
@@ -1488,12 +1483,14 @@ pub fn decode_vertex_2d_entities(
     let mut result = Vec::new();
     for obj in index.objects.iter() {
         let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let header =
+            parse_object_header_for_version(&record, decoder.version()).map_err(to_py_err)?;
         if !matches_type_name(header.type_code, 0x0A, "VERTEX_2D", &dynamic_types) {
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
+        let _type_code =
+            skip_object_type_prefix(&mut reader, decoder.version()).map_err(to_py_err)?;
         let vertex = entities::decode_vertex_2d(&mut reader).map_err(to_py_err)?;
         result.push((
             vertex.handle,
@@ -1530,12 +1527,14 @@ pub fn decode_polyline_2d_with_vertex_data(
     let mut vertex_map = std::collections::HashMap::new();
     for obj in sorted.iter() {
         let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let header =
+            parse_object_header_for_version(&record, decoder.version()).map_err(to_py_err)?;
         if !matches_type_name(header.type_code, 0x0A, "VERTEX_2D", &dynamic_types) {
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
+        let _type_code =
+            skip_object_type_prefix(&mut reader, decoder.version()).map_err(to_py_err)?;
         let vertex = entities::decode_vertex_2d(&mut reader).map_err(to_py_err)?;
         vertex_map.insert(vertex.handle, vertex);
     }
@@ -1545,13 +1544,15 @@ pub fn decode_polyline_2d_with_vertex_data(
     while i < sorted.len() {
         let obj = sorted[i];
         let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let header =
+            parse_object_header_for_version(&record, decoder.version()).map_err(to_py_err)?;
         if !matches_type_name(header.type_code, 0x0F, "POLYLINE_2D", &dynamic_types) {
             i += 1;
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
+        let _type_code =
+            skip_object_type_prefix(&mut reader, decoder.version()).map_err(to_py_err)?;
         let poly = entities::decode_polyline_2d(&mut reader).map_err(to_py_err)?;
         let mut vertices: Vec<(f64, f64, f64, f64, f64, f64, f64, u16)> = Vec::new();
         let use_vertex_z = poly.flags_info.is_3d_polyline
@@ -1586,11 +1587,12 @@ pub fn decode_polyline_2d_with_vertex_data(
                 let next_record = decoder
                     .parse_object_record(next.offset)
                     .map_err(to_py_err)?;
-                let next_header = objects::object_header_r2000::parse_from_record(&next_record)
+                let next_header = parse_object_header_for_version(&next_record, decoder.version())
                     .map_err(to_py_err)?;
                 let mut next_reader = next_record.bit_reader();
                 if matches_type_name(next_header.type_code, 0x0A, "VERTEX_2D", &dynamic_types) {
-                    let _next_type = next_reader.read_bs().map_err(to_py_err)?;
+                    let _next_type = skip_object_type_prefix(&mut next_reader, decoder.version())
+                        .map_err(to_py_err)?;
                     let vertex = entities::decode_vertex_2d(&mut next_reader).map_err(to_py_err)?;
                     let z = if use_vertex_z {
                         vertex.position.2
@@ -1611,7 +1613,8 @@ pub fn decode_polyline_2d_with_vertex_data(
                     continue;
                 }
                 if matches_type_name(next_header.type_code, 0x06, "SEQEND", &dynamic_types) {
-                    let _next_type = next_reader.read_bs().map_err(to_py_err)?;
+                    let _next_type = skip_object_type_prefix(&mut next_reader, decoder.version())
+                        .map_err(to_py_err)?;
                     let _seqend = entities::decode_seqend(&mut next_reader).map_err(to_py_err)?;
                     j += 1;
                 }
@@ -1685,17 +1688,132 @@ fn is_best_effort_compat_version(decoder: &decoder::Decoder<'_>) -> bool {
     matches!(decoder.version(), version::DwgVersion::R2010)
 }
 
+fn decode_line_for_version(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+    header: &ApiObjectHeader,
+) -> crate::core::result::Result<entities::LineEntity> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_line_r2010(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2007 => entities::decode_line_r2007(reader),
+        _ => entities::decode_line(reader),
+    }
+}
+
+fn decode_arc_for_version(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+    header: &ApiObjectHeader,
+) -> crate::core::result::Result<entities::ArcEntity> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_arc_r2010(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2007 => entities::decode_arc_r2007(reader),
+        _ => entities::decode_arc(reader),
+    }
+}
+
+fn decode_lwpolyline_for_version(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+    header: &ApiObjectHeader,
+) -> crate::core::result::Result<entities::LwPolylineEntity> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_lwpolyline_r2010(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2007 => entities::decode_lwpolyline_r2007(reader),
+        _ => entities::decode_lwpolyline(reader),
+    }
+}
+
+fn resolve_r2010_object_data_end_bit(header: &ApiObjectHeader) -> crate::core::result::Result<u32> {
+    let total_bits = header
+        .data_size
+        .checked_mul(8)
+        .ok_or_else(|| DwgError::new(ErrorKind::Format, "object size bits overflow"))?;
+    let handle_bits = header
+        .handle_stream_size_bits
+        .ok_or_else(|| DwgError::new(ErrorKind::Format, "missing R2010 handle stream size"))?;
+    total_bits.checked_sub(handle_bits).ok_or_else(|| {
+        DwgError::new(
+            ErrorKind::Format,
+            "R2010 handle stream exceeds object data size",
+        )
+    })
+}
+
+fn skip_object_type_prefix(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+) -> crate::core::result::Result<u16> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let _handle_stream_size_bits = reader.read_umc()?;
+            let type_code = reader.read_ot_r2010()?;
+            if type_code == 0 {
+                return Err(DwgError::new(ErrorKind::Format, "object type code is zero"));
+            }
+            Ok(type_code)
+        }
+        _ => {
+            let type_code = reader.read_bs()?;
+            if type_code == 0 {
+                return Err(DwgError::new(ErrorKind::Format, "object type code is zero"));
+            }
+            Ok(type_code)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ApiObjectHeader {
+    data_size: u32,
+    type_code: u16,
+    handle_stream_size_bits: Option<u32>,
+}
+
+fn parse_object_header_for_version(
+    record: &objects::ObjectRecord<'_>,
+    version: &version::DwgVersion,
+) -> crate::core::result::Result<ApiObjectHeader> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let header = objects::object_header_r2010::parse_from_record(record)?;
+            Ok(ApiObjectHeader {
+                data_size: header.data_size,
+                type_code: header.type_code,
+                handle_stream_size_bits: Some(header.handle_stream_size_bits),
+            })
+        }
+        _ => {
+            let header = objects::object_header_r2000::parse_from_record(record)?;
+            Ok(ApiObjectHeader {
+                data_size: header.data_size,
+                type_code: header.type_code,
+                handle_stream_size_bits: None,
+            })
+        }
+    }
+}
+
 fn parse_record_and_header<'a>(
     decoder: &decoder::Decoder<'a>,
     offset: u32,
     best_effort: bool,
-) -> PyResult<Option<(objects::ObjectRecord<'a>, objects::ObjectHeaderR2000)>> {
+) -> PyResult<Option<(objects::ObjectRecord<'a>, ApiObjectHeader)>> {
     let record = match decoder.parse_object_record(offset) {
         Ok(record) => record,
         Err(err) if best_effort => return Ok(None),
         Err(err) => return Err(to_py_err(err)),
     };
-    let header = match objects::object_header_r2000::parse_from_record(&record) {
+    let header = match parse_object_header_for_version(&record, decoder.version()) {
         Ok(header) => header,
         Err(err) if best_effort => return Ok(None),
         Err(err) => return Err(to_py_err(err)),

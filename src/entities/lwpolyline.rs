@@ -3,7 +3,7 @@ use crate::core::error::{DwgError, ErrorKind};
 use crate::core::result::Result;
 use crate::entities::common::{
     parse_common_entity_handles, parse_common_entity_header, parse_common_entity_header_r2007,
-    parse_common_entity_layer_handle, CommonEntityHeader,
+    parse_common_entity_header_r2010, parse_common_entity_layer_handle, CommonEntityHeader,
 };
 
 #[derive(Debug, Clone)]
@@ -23,6 +23,14 @@ pub fn decode_lwpolyline(reader: &mut BitReader<'_>) -> Result<LwPolylineEntity>
 
 pub fn decode_lwpolyline_r2007(reader: &mut BitReader<'_>) -> Result<LwPolylineEntity> {
     let header = parse_common_entity_header_r2007(reader)?;
+    decode_lwpolyline_with_header(reader, header, true, true)
+}
+
+pub fn decode_lwpolyline_r2010(
+    reader: &mut BitReader<'_>,
+    object_data_end_bit: u32,
+) -> Result<LwPolylineEntity> {
+    let header = parse_common_entity_header_r2010(reader, object_data_end_bit)?;
     decode_lwpolyline_with_header(reader, header, true, true)
 }
 
@@ -56,6 +64,8 @@ fn decode_lwpolyline_with_header(
             vertices.push((x, y));
         }
     }
+    // Handles are stored in the handle stream at obj_size bit offset.
+    reader.set_bit_pos(header.obj_size);
     let layer_handle = match if r2007_layer_only {
         parse_common_entity_layer_handle(reader, &header)
     } else {
@@ -64,7 +74,10 @@ fn decode_lwpolyline_with_header(
         Ok(layer_handle) => layer_handle,
         Err(err)
             if allow_handle_decode_failure
-                && matches!(err.kind, ErrorKind::Format | ErrorKind::Decode | ErrorKind::Io) =>
+                && matches!(
+                    err.kind,
+                    ErrorKind::Format | ErrorKind::Decode | ErrorKind::Io
+                ) =>
         {
             0
         }

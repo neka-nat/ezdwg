@@ -48,10 +48,14 @@ pub fn parse_for_object(bytes: &[u8], object: ObjectRef) -> Result<ObjectHeaderR
 pub fn parse_from_record(record: &ObjectRecord<'_>) -> Result<ObjectHeaderR2000> {
     let mut reader = BitReader::new(record.body.as_ref());
     reader.set_pos(0, record.body_bit_pos);
-    let type_code = reader.read_bs()?;
-
+    let mut type_code = reader.read_bs()?;
     if type_code == 0 {
-        return Err(DwgError::new(ErrorKind::Format, "object type code is zero"));
+        reader.set_pos(0, record.body_bit_pos);
+        let _handle_stream_size = reader.read_umc()?;
+        type_code = reader.read_ot_r2010()?;
+        if type_code == 0 {
+            return Err(DwgError::new(ErrorKind::Format, "object type code is zero"));
+        }
     }
 
     Ok(ObjectHeaderR2000 {
