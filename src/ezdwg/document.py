@@ -1,15 +1,21 @@
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import math
 import re
+import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Iterator
 
 from . import raw
 from .entity import Entity
 
-SUPPORTED_VERSIONS = {"AC1015"}
+SUPPORTED_VERSIONS = {"AC1015", "AC1018", "AC1024"}
+SUPPORTED_PARSE_VERSIONS = {"AC1015", "AC1018"}
 SUPPORTED_ENTITY_TYPES = (
     "LINE",
     "LWPOLYLINE",
@@ -26,13 +32,27 @@ def read(path: str) -> "Document":
     version = raw.detect_version(path)
     if version not in SUPPORTED_VERSIONS:
         raise ValueError(f"unsupported DWG version: {version}")
-    return Document(path=path, version=version)
+    decode_path = path
+    decode_version = version
+    if version == "AC1024":
+        decode_path = _convert_ac1024_to_ac1018(path)
+        decode_version = raw.detect_version(decode_path)
+    if decode_version not in SUPPORTED_PARSE_VERSIONS:
+        raise ValueError(f"unsupported DWG parse backend version: {decode_version}")
+    return Document(
+        path=path,
+        version=version,
+        decode_path=decode_path,
+        decode_version=decode_version,
+    )
 
 
 @dataclass(frozen=True)
 class Document:
     path: str
     version: str
+    decode_path: str
+    decode_version: str
 
     def modelspace(self) -> "Layout":
         return Layout(self, "MODELSPACE")
@@ -66,8 +86,9 @@ class Layout:
         return plot(self, *args, **kwargs)
 
     def _iter_type(self, dxftype: str) -> Iterator[Entity]:
+        decode_path = self.doc.decode_path
         if dxftype == "LINE":
-            for handle, sx, sy, sz, ex, ey, ez in raw.decode_line_entities(self.doc.path):
+            for handle, sx, sy, sz, ex, ey, ez in raw.decode_line_entities(decode_path):
                 yield Entity(
                     dxftype="LINE",
                     handle=handle,
@@ -80,7 +101,7 @@ class Layout:
 
         if dxftype == "ARC":
             for handle, cx, cy, cz, radius, start_angle, end_angle in raw.decode_arc_entities(
-                self.doc.path
+                decode_path
             ):
                 start_deg = math.degrees(start_angle)
                 end_deg = math.degrees(end_angle)
@@ -97,7 +118,7 @@ class Layout:
             return
 
         if dxftype == "LWPOLYLINE":
-            for handle, flags, points in raw.decode_lwpolyline_entities(self.doc.path):
+            for handle, flags, points in raw.decode_lwpolyline_entities(decode_path):
                 points3d = [(x, y, 0.0) for x, y in points]
                 yield Entity(
                     dxftype="LWPOLYLINE",
@@ -111,7 +132,7 @@ class Layout:
             return
 
         if dxftype == "POINT":
-            for handle, x, y, z, angle in raw.decode_point_entities(self.doc.path):
+            for handle, x, y, z, angle in raw.decode_point_entities(decode_path):
                 yield Entity(
                     dxftype="POINT",
                     handle=handle,
@@ -123,7 +144,7 @@ class Layout:
             return
 
         if dxftype == "CIRCLE":
-            for handle, cx, cy, cz, radius in raw.decode_circle_entities(self.doc.path):
+            for handle, cx, cy, cz, radius in raw.decode_circle_entities(decode_path):
                 yield Entity(
                     dxftype="CIRCLE",
                     handle=handle,
@@ -143,7 +164,7 @@ class Layout:
                 axis_ratio,
                 start_angle,
                 end_angle,
-            ) in raw.decode_ellipse_entities(self.doc.path):
+            ) in raw.decode_ellipse_entities(decode_path):
                 yield Entity(
                     dxftype="ELLIPSE",
                     handle=handle,
@@ -168,7 +189,7 @@ class Layout:
                 metrics,
                 align_flags,
                 style_handle,
-            ) in raw.decode_text_entities(self.doc.path):
+            ) in raw.decode_text_entities(decode_path):
                 thickness, oblique_angle, height, rotation, width_factor = metrics
                 generation, horizontal_alignment, vertical_alignment = align_flags
                 yield Entity(
@@ -203,7 +224,7 @@ class Layout:
                 text_height,
                 attachment,
                 drawing_dir,
-            ) in raw.decode_mtext_entities(self.doc.path):
+            ) in raw.decode_mtext_entities(decode_path):
                 rotation = math.degrees(math.atan2(x_axis_dir[1], x_axis_dir[0]))
                 plain_text = _decode_mtext_plain_text(text)
                 yield Entity(
@@ -228,6 +249,60 @@ class Layout:
             f"unsupported entity type: {dxftype}. "
             "Supported types: LINE, LWPOLYLINE, ARC, CIRCLE, ELLIPSE, POINT, TEXT, MTEXT"
         )
+
+
+def _convert_ac1024_to_ac1018(path: str) -> str:
+    source = Path(path).resolve()
+    if not source.exists():
+        raise FileNotFoundError(path)
+
+    converter = shutil.which("ODAFileConverter")
+    xvfb_run = shutil.which("xvfb-run")
+    if converter is None or xvfb_run is None:
+        raise ValueError(
+            "AC1024 reading requires ODAFileConverter and xvfb-run for compatibility conversion."
+        )
+
+    stat = source.stat()
+    digest = hashlib.sha1(
+        f"{source}:{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8")
+    ).hexdigest()
+    cache_dir = Path(tempfile.gettempdir()) / "ezdwg_ac1024_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    converted_path = cache_dir / f"{digest}.dwg"
+    if converted_path.exists():
+        return str(converted_path)
+
+    with tempfile.TemporaryDirectory(dir=cache_dir) as workdir:
+        in_dir = Path(workdir) / "in"
+        out_dir = Path(workdir) / "out"
+        in_dir.mkdir(parents=True, exist_ok=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        shutil.copy2(source, in_dir / "source.DWG")
+        cmd = [
+            xvfb_run,
+            "-a",
+            converter,
+            str(in_dir),
+            str(out_dir),
+            "ACAD2004",
+            "DWG",
+            "0",
+            "1",
+            "*.DWG",
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if proc.returncode != 0:
+            message = (proc.stderr or proc.stdout or "").strip()
+            raise ValueError(f"AC1024 conversion failed: {message}")
+
+        candidates = sorted(out_dir.glob("*.dwg")) + sorted(out_dir.glob("*.DWG"))
+        if not candidates:
+            raise ValueError("AC1024 conversion produced no output DWG")
+        shutil.copy2(candidates[0], converted_path)
+
+    return str(converted_path)
 
 
 def _decode_mtext_plain_text(value: str) -> str:

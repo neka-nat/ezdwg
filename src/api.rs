@@ -206,18 +206,30 @@ pub fn decode_line_entities(
 ) -> PyResult<Vec<(u64, f64, f64, f64, f64, f64, f64)>> {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
-    let dynamic_types = decoder.dynamic_type_map().map_err(to_py_err)?;
+    let best_effort = is_best_effort_compat_version(&decoder);
+    let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
     let index = decoder.build_object_index().map_err(to_py_err)?;
     let mut result = Vec::new();
     for obj in index.objects.iter() {
-        let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let Some((record, header)) = parse_record_and_header(&decoder, obj.offset, best_effort)?
+        else {
+            continue;
+        };
         if !matches_type_name(header.type_code, 0x13, "LINE", &dynamic_types) {
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
-        let entity = entities::decode_line(&mut reader).map_err(to_py_err)?;
+        if let Err(err) = reader.read_bs() {
+            if best_effort {
+                continue;
+            }
+            return Err(to_py_err(err));
+        }
+        let entity = match entities::decode_line(&mut reader) {
+            Ok(entity) => entity,
+            Err(err) if best_effort => continue,
+            Err(err) => return Err(to_py_err(err)),
+        };
         result.push((
             entity.handle,
             entity.start.0,
@@ -243,18 +255,30 @@ pub fn decode_point_entities(
 ) -> PyResult<Vec<(u64, f64, f64, f64, f64)>> {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
-    let dynamic_types = decoder.dynamic_type_map().map_err(to_py_err)?;
+    let best_effort = is_best_effort_compat_version(&decoder);
+    let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
     let index = decoder.build_object_index().map_err(to_py_err)?;
     let mut result = Vec::new();
     for obj in index.objects.iter() {
-        let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let Some((record, header)) = parse_record_and_header(&decoder, obj.offset, best_effort)?
+        else {
+            continue;
+        };
         if !matches_type_name(header.type_code, 0x1B, "POINT", &dynamic_types) {
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
-        let entity = entities::decode_point(&mut reader).map_err(to_py_err)?;
+        if let Err(err) = reader.read_bs() {
+            if best_effort {
+                continue;
+            }
+            return Err(to_py_err(err));
+        }
+        let entity = match entities::decode_point(&mut reader) {
+            Ok(entity) => entity,
+            Err(err) if best_effort => continue,
+            Err(err) => return Err(to_py_err(err)),
+        };
         result.push((
             entity.handle,
             entity.location.0,
@@ -278,18 +302,30 @@ pub fn decode_arc_entities(
 ) -> PyResult<Vec<(u64, f64, f64, f64, f64, f64, f64)>> {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
-    let dynamic_types = decoder.dynamic_type_map().map_err(to_py_err)?;
+    let best_effort = is_best_effort_compat_version(&decoder);
+    let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
     let index = decoder.build_object_index().map_err(to_py_err)?;
     let mut result = Vec::new();
     for obj in index.objects.iter() {
-        let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let Some((record, header)) = parse_record_and_header(&decoder, obj.offset, best_effort)?
+        else {
+            continue;
+        };
         if !matches_type_name(header.type_code, 0x11, "ARC", &dynamic_types) {
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
-        let entity = entities::decode_arc(&mut reader).map_err(to_py_err)?;
+        if let Err(err) = reader.read_bs() {
+            if best_effort {
+                continue;
+            }
+            return Err(to_py_err(err));
+        }
+        let entity = match entities::decode_arc(&mut reader) {
+            Ok(entity) => entity,
+            Err(err) if best_effort => continue,
+            Err(err) => return Err(to_py_err(err)),
+        };
         result.push((
             entity.handle,
             entity.center.0,
@@ -315,18 +351,30 @@ pub fn decode_circle_entities(
 ) -> PyResult<Vec<(u64, f64, f64, f64, f64)>> {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
-    let dynamic_types = decoder.dynamic_type_map().map_err(to_py_err)?;
+    let best_effort = is_best_effort_compat_version(&decoder);
+    let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
     let index = decoder.build_object_index().map_err(to_py_err)?;
     let mut result = Vec::new();
     for obj in index.objects.iter() {
-        let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let Some((record, header)) = parse_record_and_header(&decoder, obj.offset, best_effort)?
+        else {
+            continue;
+        };
         if !matches_type_name(header.type_code, 0x12, "CIRCLE", &dynamic_types) {
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
-        let entity = entities::decode_circle(&mut reader).map_err(to_py_err)?;
+        if let Err(err) = reader.read_bs() {
+            if best_effort {
+                continue;
+            }
+            return Err(to_py_err(err));
+        }
+        let entity = match entities::decode_circle(&mut reader) {
+            Ok(entity) => entity,
+            Err(err) if best_effort => continue,
+            Err(err) => return Err(to_py_err(err)),
+        };
         result.push((
             entity.handle,
             entity.center.0,
@@ -360,18 +408,30 @@ pub fn decode_ellipse_entities(
 > {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
-    let dynamic_types = decoder.dynamic_type_map().map_err(to_py_err)?;
+    let best_effort = is_best_effort_compat_version(&decoder);
+    let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
     let index = decoder.build_object_index().map_err(to_py_err)?;
     let mut result = Vec::new();
     for obj in index.objects.iter() {
-        let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let Some((record, header)) = parse_record_and_header(&decoder, obj.offset, best_effort)?
+        else {
+            continue;
+        };
         if !matches_type_name(header.type_code, 0x23, "ELLIPSE", &dynamic_types) {
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
-        let entity = entities::decode_ellipse(&mut reader).map_err(to_py_err)?;
+        if let Err(err) = reader.read_bs() {
+            if best_effort {
+                continue;
+            }
+            return Err(to_py_err(err));
+        }
+        let entity = match entities::decode_ellipse(&mut reader) {
+            Ok(entity) => entity,
+            Err(err) if best_effort => continue,
+            Err(err) => return Err(to_py_err(err)),
+        };
         result.push((
             entity.handle,
             entity.center,
@@ -408,18 +468,30 @@ pub fn decode_text_entities(
 > {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
-    let dynamic_types = decoder.dynamic_type_map().map_err(to_py_err)?;
+    let best_effort = is_best_effort_compat_version(&decoder);
+    let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
     let index = decoder.build_object_index().map_err(to_py_err)?;
     let mut result = Vec::new();
     for obj in index.objects.iter() {
-        let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let Some((record, header)) = parse_record_and_header(&decoder, obj.offset, best_effort)?
+        else {
+            continue;
+        };
         if !matches_type_name(header.type_code, 0x01, "TEXT", &dynamic_types) {
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
-        let entity = entities::decode_text(&mut reader).map_err(to_py_err)?;
+        if let Err(err) = reader.read_bs() {
+            if best_effort {
+                continue;
+            }
+            return Err(to_py_err(err));
+        }
+        let entity = match entities::decode_text(&mut reader) {
+            Ok(entity) => entity,
+            Err(err) if best_effort => continue,
+            Err(err) => return Err(to_py_err(err)),
+        };
         result.push((
             entity.handle,
             entity.text,
@@ -468,18 +540,30 @@ pub fn decode_mtext_entities(
 > {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
-    let dynamic_types = decoder.dynamic_type_map().map_err(to_py_err)?;
+    let best_effort = is_best_effort_compat_version(&decoder);
+    let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
     let index = decoder.build_object_index().map_err(to_py_err)?;
     let mut result = Vec::new();
     for obj in index.objects.iter() {
-        let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let Some((record, header)) = parse_record_and_header(&decoder, obj.offset, best_effort)?
+        else {
+            continue;
+        };
         if !matches_type_name(header.type_code, 0x2C, "MTEXT", &dynamic_types) {
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
-        let entity = entities::decode_mtext(&mut reader).map_err(to_py_err)?;
+        if let Err(err) = reader.read_bs() {
+            if best_effort {
+                continue;
+            }
+            return Err(to_py_err(err));
+        }
+        let entity = match entities::decode_mtext(&mut reader) {
+            Ok(entity) => entity,
+            Err(err) if best_effort => continue,
+            Err(err) => return Err(to_py_err(err)),
+        };
         result.push((
             entity.handle,
             entity.text,
@@ -641,18 +725,30 @@ pub fn decode_lwpolyline_entities(
 ) -> PyResult<Vec<(u64, u16, Vec<(f64, f64)>)>> {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
-    let dynamic_types = decoder.dynamic_type_map().map_err(to_py_err)?;
+    let best_effort = is_best_effort_compat_version(&decoder);
+    let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
     let index = decoder.build_object_index().map_err(to_py_err)?;
     let mut result = Vec::new();
     for obj in index.objects.iter() {
-        let record = decoder.parse_object_record(obj.offset).map_err(to_py_err)?;
-        let header = objects::object_header_r2000::parse_from_record(&record).map_err(to_py_err)?;
+        let Some((record, header)) = parse_record_and_header(&decoder, obj.offset, best_effort)?
+        else {
+            continue;
+        };
         if !matches_type_name(header.type_code, 0x4D, "LWPOLYLINE", &dynamic_types) {
             continue;
         }
         let mut reader = record.bit_reader();
-        let _type_code = reader.read_bs().map_err(to_py_err)?;
-        let entity = entities::decode_lwpolyline(&mut reader).map_err(to_py_err)?;
+        if let Err(err) = reader.read_bs() {
+            if best_effort {
+                continue;
+            }
+            return Err(to_py_err(err));
+        }
+        let entity = match entities::decode_lwpolyline(&mut reader) {
+            Ok(entity) => entity,
+            Err(err) if best_effort => continue,
+            Err(err) => return Err(to_py_err(err)),
+        };
         result.push((entity.handle, entity.flags, entity.vertices));
         if let Some(limit) = limit {
             if result.len() >= limit {
@@ -1091,6 +1187,39 @@ pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
         module
     )?)?;
     Ok(())
+}
+
+fn is_best_effort_compat_version(decoder: &decoder::Decoder<'_>) -> bool {
+    matches!(decoder.version(), version::DwgVersion::R2010)
+}
+
+fn parse_record_and_header<'a>(
+    decoder: &decoder::Decoder<'a>,
+    offset: u32,
+    best_effort: bool,
+) -> PyResult<Option<(objects::ObjectRecord<'a>, objects::ObjectHeaderR2000)>> {
+    let record = match decoder.parse_object_record(offset) {
+        Ok(record) => record,
+        Err(err) if best_effort => return Ok(None),
+        Err(err) => return Err(to_py_err(err)),
+    };
+    let header = match objects::object_header_r2000::parse_from_record(&record) {
+        Ok(header) => header,
+        Err(err) if best_effort => return Ok(None),
+        Err(err) => return Err(to_py_err(err)),
+    };
+    Ok(Some((record, header)))
+}
+
+fn load_dynamic_types(
+    decoder: &decoder::Decoder<'_>,
+    best_effort: bool,
+) -> PyResult<HashMap<u16, String>> {
+    match decoder.dynamic_type_map() {
+        Ok(map) => Ok(map),
+        Err(_) if best_effort => Ok(HashMap::new()),
+        Err(err) => Err(to_py_err(err)),
+    }
 }
 
 fn build_decoder(bytes: &[u8]) -> crate::core::result::Result<decoder::Decoder<'_>> {

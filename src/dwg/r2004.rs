@@ -1217,7 +1217,10 @@ mod tests {
             assert!(entity.text.contains("Hello"));
             assert!((entity.insertion.0 - 50.0).abs() < 1e-9);
             assert!((entity.insertion.1 - 50.0).abs() < 1e-9);
+            assert!((entity.thickness - 0.0).abs() < 1e-9);
+            assert!((entity.oblique_angle - 0.0).abs() < 1e-9);
             assert!((entity.height - 5.0).abs() < 1e-9);
+            assert!(entity.style_handle.is_some());
         }
         assert_eq!(text_count, 1);
 

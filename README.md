@@ -1,10 +1,10 @@
 # ezdwg
 
-Minimal DWG (R2000/AC1015) reader with a Python API inspired by ezdxf.
+Minimal DWG (R2000-R2010 / AC1015-AC1024) reader with a Python API inspired by ezdxf.
 This project is **read-only** today and focuses on a simple, friendly API.
 
 ## Status
-- High-level API (`ezdwg.read`): **R2000 / AC1015**
+- High-level API (`ezdwg.read`): **R2000 / AC1015**, **R2004 / AC1018**, **R2010 / AC1024** (compat mode)
 - Raw API (`ezdwg.raw`): **R2000 / AC1015**, **R2004 / AC1018**
 - High-level entities: **LINE**, **ARC**, **LWPOLYLINE**, **POINT**, **CIRCLE**, **ELLIPSE**, **TEXT**, **MTEXT**
 - Additional raw decode: **INSERT** (+ low-level POLYLINE/VERTEX helpers)
@@ -21,6 +21,13 @@ Plotting (optional):
 
 ```bash
 pip install "ezdwg[plot]"
+```
+
+AC1024 compatibility mode requires:
+
+```bash
+ODAFileConverter
+xvfb-run
 ```
 
 ## Quick Start
@@ -65,6 +72,7 @@ raw.decode_line_entities("path/to/file.dwg")
 
 ## Limitations
 - Read‑only
-- High-level API is currently R2000 only (AC1015)
+- High-level API supports R2000 (AC1015), R2004 (AC1018), and R2010 (AC1024)
+- AC1024 uses compatibility conversion to AC1018 via `ODAFileConverter` + `xvfb-run`
 - Legacy `POLYLINE/VERTEX/SEQEND` samples are not yet covered in AC1018 test data
 - ARC angles in raw API are **radians** (high‑level API converts to degrees)
