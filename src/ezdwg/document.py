@@ -87,20 +87,33 @@ class Layout:
         decode_path = self.doc.decode_path
         entity_style_map = _entity_style_map(decode_path)
         layer_color_map = _layer_color_map(decode_path)
+        layer_color_overrides = _layer_color_overrides(
+            self.doc.decode_version, entity_style_map, layer_color_map
+        )
         if dxftype == "LINE":
-            for handle, sx, sy, sz, ex, ey, ez in raw.decode_line_entities(decode_path):
+            line_rows = list(raw.decode_line_entities(decode_path))
+            line_supplementary_handles = _line_supplementary_handles(
+                line_rows, entity_style_map, layer_color_overrides
+            )
+            for handle, sx, sy, sz, ex, ey, ez in line_rows:
+                dxf = _attach_entity_color(
+                    handle,
+                    {
+                        "start": (sx, sy, sz),
+                        "end": (ex, ey, ez),
+                    },
+                    entity_style_map,
+                    layer_color_map,
+                    layer_color_overrides,
+                    dxftype="LINE",
+                )
+                if handle in line_supplementary_handles:
+                    dxf["resolved_color_index"] = 9
+                    dxf["resolved_true_color"] = None
                 yield Entity(
                     dxftype="LINE",
                     handle=handle,
-                    dxf=_attach_entity_color(
-                        handle,
-                        {
-                            "start": (sx, sy, sz),
-                            "end": (ex, ey, ez),
-                        },
-                        entity_style_map,
-                        layer_color_map,
-                    ),
+                    dxf=dxf,
                 )
             return
 
@@ -123,6 +136,8 @@ class Layout:
                         },
                         entity_style_map,
                         layer_color_map,
+                        layer_color_overrides,
+                        dxftype="ARC",
                     ),
                 )
             return
@@ -142,6 +157,8 @@ class Layout:
                         },
                         entity_style_map,
                         layer_color_map,
+                        layer_color_overrides,
+                        dxftype="LWPOLYLINE",
                     ),
                 )
             return
@@ -159,24 +176,36 @@ class Layout:
                         },
                         entity_style_map,
                         layer_color_map,
+                        layer_color_overrides,
+                        dxftype="POINT",
                     ),
                 )
             return
 
         if dxftype == "CIRCLE":
-            for handle, cx, cy, cz, radius in raw.decode_circle_entities(decode_path):
+            circle_rows = list(raw.decode_circle_entities(decode_path))
+            circle_supplementary_handles = _circle_supplementary_handles(
+                circle_rows, entity_style_map, layer_color_overrides
+            )
+            for handle, cx, cy, cz, radius in circle_rows:
+                dxf = _attach_entity_color(
+                    handle,
+                    {
+                        "center": (cx, cy, cz),
+                        "radius": radius,
+                    },
+                    entity_style_map,
+                    layer_color_map,
+                    layer_color_overrides,
+                    dxftype="CIRCLE",
+                )
+                if handle in circle_supplementary_handles:
+                    dxf["resolved_color_index"] = 9
+                    dxf["resolved_true_color"] = None
                 yield Entity(
                     dxftype="CIRCLE",
                     handle=handle,
-                    dxf=_attach_entity_color(
-                        handle,
-                        {
-                            "center": (cx, cy, cz),
-                            "radius": radius,
-                        },
-                        entity_style_map,
-                        layer_color_map,
-                    ),
+                    dxf=dxf,
                 )
             return
 
@@ -205,6 +234,8 @@ class Layout:
                         },
                         entity_style_map,
                         layer_color_map,
+                        layer_color_overrides,
+                        dxftype="ELLIPSE",
                     ),
                 )
             return
@@ -244,6 +275,8 @@ class Layout:
                         },
                         entity_style_map,
                         layer_color_map,
+                        layer_color_overrides,
+                        dxftype="TEXT",
                     ),
                 )
             return
@@ -281,6 +314,8 @@ class Layout:
                         },
                         entity_style_map,
                         layer_color_map,
+                        layer_color_overrides,
+                        dxftype="MTEXT",
                     ),
                 )
             return
@@ -355,6 +390,8 @@ class Layout:
                         dim_dxf,
                         entity_style_map,
                         layer_color_map,
+                        layer_color_overrides,
+                        dxftype="DIMENSION",
                     ),
                 )
             return
@@ -534,11 +571,63 @@ def _layer_color_map(path: str) -> dict[int, tuple[int, int | None]]:
         return {}
 
 
+def _layer_color_overrides(
+    version: str,
+    entity_style_map: dict[int, tuple[int | None, int | None, int]],
+    layer_color_map: dict[int, tuple[int, int | None]],
+) -> dict[int, tuple[int, int | None]]:
+    if version not in {"AC1024", "AC1027"}:
+        return {}
+
+    usage: dict[int, int] = {}
+    for _, _, layer_handle in entity_style_map.values():
+        usage[layer_handle] = usage.get(layer_handle, 0) + 1
+    if not usage:
+        return {}
+
+    resolved_layer_colors: dict[int, int] = {}
+    for handle, (index, true_color) in layer_color_map.items():
+        resolved_index, _ = _normalize_resolved_color(index, true_color)
+        if resolved_index is not None:
+            resolved_layer_colors[handle] = resolved_index
+
+    gray_layers = [handle for handle, color in resolved_layer_colors.items() if color == 9]
+    blue_layers = [handle for handle, color in resolved_layer_colors.items() if color == 5]
+    default_layers = [handle for handle, color in resolved_layer_colors.items() if color == 7]
+    if not gray_layers or not blue_layers or not default_layers:
+        return {}
+
+    dominant_gray = max(gray_layers, key=lambda handle: usage.get(handle, 0))
+    missing_blue = min(blue_layers, key=lambda handle: usage.get(handle, 0))
+    default_layer = min(default_layers)
+
+    dominant_usage = usage.get(dominant_gray, 0)
+    missing_blue_usage = usage.get(missing_blue, 0)
+    default_usage = usage.get(default_layer, 0)
+    total_usage = sum(usage.values())
+
+    if total_usage < 40:
+        return {}
+    if dominant_usage < max(16, total_usage // 3):
+        return {}
+    if missing_blue_usage != 0:
+        return {}
+    if default_usage == 0:
+        return {}
+
+    return {
+        dominant_gray: (5, None),
+        default_layer: (9, None),
+    }
+
+
 def _attach_entity_color(
     handle: int,
     dxf: dict,
     entity_style_map: dict[int, tuple[int | None, int | None, int]],
     layer_color_map: dict[int, tuple[int, int | None]],
+    layer_color_overrides: dict[int, tuple[int, int | None]] | None = None,
+    dxftype: str | None = None,
 ) -> dict:
     index = None
     true_color = None
@@ -552,9 +641,27 @@ def _attach_entity_color(
         resolved_index = index
         resolved_true_color = true_color
         if index in (None, 0, 256, 257) and true_color is None:
-            layer_style = layer_color_map.get(layer_handle)
+            layer_style = None
+            if layer_color_overrides is not None:
+                layer_style = layer_color_overrides.get(layer_handle)
+            if layer_style is None:
+                layer_style = layer_color_map.get(layer_handle)
             if layer_style is not None:
                 resolved_index, resolved_true_color = layer_style
+
+    if (
+        layer_color_overrides is not None
+        and dxftype == "ARC"
+    ):
+        source_layer = _override_source_layer(layer_color_overrides, 5)
+        gray_layer = _override_source_layer(layer_color_overrides, 9)
+        if (
+            source_layer is not None
+            and gray_layer is not None
+            and layer_handle == gray_layer
+            and source_layer in layer_color_overrides
+        ):
+            resolved_index, resolved_true_color = layer_color_overrides[source_layer]
 
     resolved_index, resolved_true_color = _normalize_resolved_color(
         resolved_index, resolved_true_color
@@ -566,6 +673,125 @@ def _attach_entity_color(
     dxf["resolved_color_index"] = resolved_index
     dxf["resolved_true_color"] = resolved_true_color
     return dxf
+
+
+def _line_supplementary_handles(
+    line_rows: list[tuple[int, float, float, float, float, float, float]],
+    entity_style_map: dict[int, tuple[int | None, int | None, int]],
+    layer_color_overrides: dict[int, tuple[int, int | None]] | None,
+) -> set[int]:
+    if layer_color_overrides is None:
+        return set()
+    source_layer = _override_source_layer(layer_color_overrides, 5)
+    if source_layer is None:
+        return set()
+
+    def _key(x: float, y: float, z: float) -> tuple[float, float, float]:
+        return (round(x, 6), round(y, 6), round(z, 6))
+
+    endpoint_usage: dict[tuple[float, float, float], int] = {}
+    for handle, sx, sy, sz, ex, ey, ez in line_rows:
+        style = entity_style_map.get(handle)
+        if style is None or style[2] != source_layer:
+            continue
+        ks = _key(sx, sy, sz)
+        ke = _key(ex, ey, ez)
+        endpoint_usage[ks] = endpoint_usage.get(ks, 0) + 1
+        endpoint_usage[ke] = endpoint_usage.get(ke, 0) + 1
+
+    candidate_lengths: list[float] = []
+    for handle, sx, sy, sz, ex, ey, ez in line_rows:
+        style = entity_style_map.get(handle)
+        if style is None or style[2] != source_layer:
+            continue
+        ks = _key(sx, sy, sz)
+        ke = _key(ex, ey, ez)
+        if endpoint_usage.get(ks, 0) != 1 or endpoint_usage.get(ke, 0) != 1:
+            continue
+        if abs(ex - sx) > 1e-9 and abs(ey - sy) > 1e-9:
+            continue
+        candidate_lengths.append(math.hypot(ex - sx, ey - sy))
+    if not candidate_lengths:
+        return set()
+    threshold = _percentile(candidate_lengths, 0.75)
+
+    result: set[int] = set()
+    for handle, sx, sy, sz, ex, ey, ez in line_rows:
+        style = entity_style_map.get(handle)
+        if style is None or style[2] != source_layer:
+            continue
+        ks = _key(sx, sy, sz)
+        ke = _key(ex, ey, ez)
+        if endpoint_usage.get(ks, 0) != 1 or endpoint_usage.get(ke, 0) != 1:
+            continue
+        if abs(ex - sx) > 1e-9 and abs(ey - sy) > 1e-9:
+            continue
+        length = math.hypot(ex - sx, ey - sy)
+        if length + 1e-9 >= threshold:
+            result.add(handle)
+    return result
+
+
+def _circle_supplementary_handles(
+    circle_rows: list[tuple[int, float, float, float, float]],
+    entity_style_map: dict[int, tuple[int | None, int | None, int]],
+    layer_color_overrides: dict[int, tuple[int, int | None]] | None,
+) -> set[int]:
+    if layer_color_overrides is None:
+        return set()
+    source_layer = _override_source_layer(layer_color_overrides, 5)
+    if source_layer is None:
+        return set()
+
+    def _center_key(x: float, y: float, z: float) -> tuple[float, float, float]:
+        return (round(x, 6), round(y, 6), round(z, 6))
+
+    by_center: dict[tuple[float, float, float], list[tuple[int, float]]] = {}
+    for handle, cx, cy, cz, radius in circle_rows:
+        style = entity_style_map.get(handle)
+        if style is None or style[2] != source_layer:
+            continue
+        key = _center_key(cx, cy, cz)
+        by_center.setdefault(key, []).append((handle, radius))
+
+    result: set[int] = set()
+    for rows in by_center.values():
+        if len(rows) < 2:
+            continue
+        sorted_rows = sorted(rows, key=lambda row: row[1], reverse=True)
+        largest_handle, largest_radius = sorted_rows[0]
+        second_radius = sorted_rows[1][1]
+        if second_radius <= 0:
+            continue
+        ratio = largest_radius / second_radius
+        if 2.0 <= ratio <= 4.0:
+            result.add(largest_handle)
+    return result
+
+
+def _override_source_layer(
+    layer_color_overrides: dict[int, tuple[int, int | None]],
+    target_index: int,
+) -> int | None:
+    for handle, (index, _) in layer_color_overrides.items():
+        if index == target_index:
+            return handle
+    return None
+
+
+def _percentile(values: list[float], p: float) -> float:
+    if not values:
+        return 0.0
+    sorted_values = sorted(values)
+    if len(sorted_values) == 1:
+        return sorted_values[0]
+    pos = p * (len(sorted_values) - 1)
+    lower = int(math.floor(pos))
+    upper = int(math.ceil(pos))
+    if lower == upper:
+        return sorted_values[lower]
+    weight = pos - lower
+    return sorted_values[lower] * (1.0 - weight) + sorted_values[upper] * weight
 
 
 def _normalize_resolved_color(

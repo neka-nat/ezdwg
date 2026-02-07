@@ -134,12 +134,8 @@ fn decode_dim_linear_r2010_plus_with_header(
     let mut last_error: Option<DwgError> = None;
     for parse_variant in variants {
         reader.set_pos(data_pos.0, data_pos.1);
-        match decode_r2010_plus_variant(
-            reader,
-            &header,
-            parse_variant,
-            allow_handle_decode_failure,
-        ) {
+        match decode_r2010_plus_variant(reader, &header, parse_variant, allow_handle_decode_failure)
+        {
             Ok(entity) => {
                 let score = plausibility_score(&entity);
                 match &best {

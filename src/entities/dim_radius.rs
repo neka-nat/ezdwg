@@ -2,8 +2,9 @@ use crate::bit::{BitReader, Endian};
 use crate::core::error::{DwgError, ErrorKind};
 use crate::core::result::Result;
 use crate::entities::common::{
-    parse_common_entity_handles, parse_common_entity_header_r2010, parse_common_entity_header_r2013,
-    parse_common_entity_layer_handle, read_handle_reference, CommonEntityHeader,
+    parse_common_entity_handles, parse_common_entity_header_r2010,
+    parse_common_entity_header_r2013, parse_common_entity_layer_handle, read_handle_reference,
+    CommonEntityHeader,
 };
 use crate::entities::dim_linear::{
     decode_dim_linear, decode_dim_linear_r2007, DimLinearEntity, DimensionCommonData,
@@ -101,12 +102,8 @@ fn decode_dim_radius_r2010_plus_with_header(
     let mut last_error: Option<DwgError> = None;
     for parse_variant in variants {
         reader.set_pos(data_pos.0, data_pos.1);
-        match decode_r2010_plus_variant(
-            reader,
-            &header,
-            parse_variant,
-            allow_handle_decode_failure,
-        ) {
+        match decode_r2010_plus_variant(reader, &header, parse_variant, allow_handle_decode_failure)
+        {
             Ok(entity) => {
                 let score = plausibility_score(&entity);
                 match &best {
