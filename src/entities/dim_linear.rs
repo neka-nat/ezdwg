@@ -7,7 +7,7 @@ use crate::entities::common::{
 };
 
 #[derive(Debug, Clone)]
-pub struct DimLinearEntity {
+pub struct DimensionCommonData {
     pub handle: u64,
     pub color_index: Option<u16>,
     pub true_color: Option<u32>,
@@ -26,13 +26,18 @@ pub struct DimLinearEntity {
     pub line_spacing_factor: Option<f64>,
     pub actual_measurement: Option<f64>,
     pub insert_point: Option<(f64, f64, f64)>,
+    pub dimstyle_handle: Option<u64>,
+    pub anonymous_block_handle: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DimLinearEntity {
+    pub common: DimensionCommonData,
     pub point13: (f64, f64, f64),
     pub point14: (f64, f64, f64),
     pub point10: (f64, f64, f64),
     pub ext_line_rotation: f64,
     pub dim_rotation: f64,
-    pub dimstyle_handle: Option<u64>,
-    pub anonymous_block_handle: Option<u64>,
 }
 
 #[derive(Clone, Copy)]
@@ -157,7 +162,7 @@ fn decode_variant(
             )
         };
 
-    Ok(DimLinearEntity {
+    let common = DimensionCommonData {
         handle: header.handle,
         color_index: header.color.index,
         true_color: header.color.true_color,
@@ -176,13 +181,17 @@ fn decode_variant(
         line_spacing_factor,
         actual_measurement,
         insert_point,
+        dimstyle_handle,
+        anonymous_block_handle,
+    };
+
+    Ok(DimLinearEntity {
+        common,
         point13,
         point14,
         point10,
         ext_line_rotation,
         dim_rotation,
-        dimstyle_handle,
-        anonymous_block_handle,
     })
 }
 
@@ -206,35 +215,36 @@ const fn variant(
 
 fn plausibility_score(entity: &DimLinearEntity) -> u64 {
     let mut score = 0u64;
+    let common = &entity.common;
 
     for pt in [
         entity.point10,
         entity.point13,
         entity.point14,
-        entity.text_midpoint,
+        common.text_midpoint,
     ] {
         score = score.saturating_add(point_score(pt));
     }
-    if let Some(insert_point) = entity.insert_point {
+    if let Some(insert_point) = common.insert_point {
         score = score.saturating_add(point_score(insert_point));
     }
-    score = score.saturating_add(point_score(entity.extrusion));
-    score = score.saturating_add(point_score(entity.insert_scale));
+    score = score.saturating_add(point_score(common.extrusion));
+    score = score.saturating_add(point_score(common.insert_scale));
 
     for angle in [
-        entity.text_rotation,
-        entity.horizontal_direction,
+        common.text_rotation,
+        common.horizontal_direction,
         entity.ext_line_rotation,
         entity.dim_rotation,
-        entity.insert_rotation,
+        common.insert_rotation,
     ] {
         score = score.saturating_add(angle_score(angle));
     }
 
-    if let Some(measurement) = entity.actual_measurement {
+    if let Some(measurement) = common.actual_measurement {
         score = score.saturating_add(value_score(measurement));
     }
-    if let Some(line_spacing) = entity.line_spacing_factor {
+    if let Some(line_spacing) = common.line_spacing_factor {
         score = score.saturating_add(value_score(line_spacing));
     }
 

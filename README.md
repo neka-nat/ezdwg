@@ -1,12 +1,12 @@
 # ezdwg
 
-Minimal DWG (R2000-R2010 / AC1015-AC1024) reader with a Python API inspired by ezdxf.
+Minimal DWG (R2000-R2013 / AC1015-AC1027) reader with a Python API inspired by ezdxf.
 This project is **read-only** today and focuses on a simple, friendly API.
 
 ## Status
-- High-level API (`ezdwg.read`): **R2000 / AC1015**, **R2004 / AC1018**, **R2010 / AC1024** (compat mode)
+- High-level API (`ezdwg.read`): **R2000 / AC1015**, **R2004 / AC1018**, **R2007 / AC1021** (compat mode), **R2010 / AC1024** (compat mode), **R2013 / AC1027** (compat mode)
 - Raw API (`ezdwg.raw`): **R2000 / AC1015**, **R2004 / AC1018**
-- High-level entities: **LINE**, **ARC**, **LWPOLYLINE**, **POINT**, **CIRCLE**, **ELLIPSE**, **TEXT**, **MTEXT**, **DIMENSION** (linear)
+- High-level entities: **LINE**, **ARC**, **LWPOLYLINE**, **POINT**, **CIRCLE**, **ELLIPSE**, **TEXT**, **MTEXT**, **DIMENSION** (linear + diameter)
 - Additional raw decode: **INSERT** (+ low-level POLYLINE/VERTEX helpers)
 - Output units/angles: high-level API returns ARC angles in **degrees**
 
@@ -23,7 +23,7 @@ Plotting (optional):
 pip install "ezdwg[plot]"
 ```
 
-AC1024 compatibility mode requires:
+Compatibility mode for AC1021/AC1024/AC1027 requires:
 
 ```bash
 ODAFileConverter
@@ -80,7 +80,7 @@ raw.decode_line_entities("path/to/file.dwg")
 
 ## Limitations
 - Read‑only
-- High-level API supports R2000 (AC1015), R2004 (AC1018), and R2010 (AC1024)
-- AC1024 uses compatibility conversion to AC1018 via `ODAFileConverter` + `xvfb-run`
+- High-level API supports R2000 (AC1015), R2004 (AC1018), R2007 (AC1021), R2010 (AC1024), and R2013 (AC1027)
+- AC1021/AC1024/AC1027 use compatibility conversion to AC1018 via `ODAFileConverter` + `xvfb-run`
 - Legacy `POLYLINE/VERTEX/SEQEND` samples are not yet covered in AC1018 test data
 - ARC angles in raw API are **radians** (high‑level API converts to degrees)

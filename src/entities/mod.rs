@@ -1,6 +1,7 @@
 pub mod arc;
 pub mod circle;
 pub mod common;
+pub mod dim_diameter;
 pub mod dim_linear;
 pub mod ellipse;
 pub mod insert;
@@ -16,7 +17,8 @@ pub mod vertex_2d;
 
 pub use arc::{decode_arc, ArcEntity};
 pub use circle::{decode_circle, CircleEntity};
-pub use dim_linear::{decode_dim_linear, DimLinearEntity};
+pub use dim_diameter::{decode_dim_diameter, DimDiameterEntity};
+pub use dim_linear::{decode_dim_linear, DimLinearEntity, DimensionCommonData};
 pub use ellipse::{decode_ellipse, EllipseEntity};
 pub use insert::{decode_insert, InsertEntity};
 pub use line::{decode_line, LineEntity};

@@ -15,8 +15,9 @@ from typing import Iterable, Iterator
 from . import raw
 from .entity import Entity
 
-SUPPORTED_VERSIONS = {"AC1015", "AC1018", "AC1024"}
+SUPPORTED_VERSIONS = {"AC1015", "AC1018", "AC1021", "AC1024", "AC1027"}
 SUPPORTED_PARSE_VERSIONS = {"AC1015", "AC1018"}
+COMPAT_CONVERSION_VERSIONS = {"AC1021", "AC1024", "AC1027"}
 SUPPORTED_ENTITY_TYPES = (
     "LINE",
     "LWPOLYLINE",
@@ -31,6 +32,7 @@ SUPPORTED_ENTITY_TYPES = (
 
 TYPE_ALIASES = {
     "DIM_LINEAR": "DIMENSION",
+    "DIM_DIAMETER": "DIMENSION",
 }
 
 
@@ -40,8 +42,8 @@ def read(path: str) -> "Document":
         raise ValueError(f"unsupported DWG version: {version}")
     decode_path = path
     decode_version = version
-    if version == "AC1024":
-        decode_path = _convert_ac1024_to_ac1018(path)
+    if version in COMPAT_CONVERSION_VERSIONS:
+        decode_path = _convert_to_ac1018(path, version)
         decode_version = raw.detect_version(decode_path)
     if decode_version not in SUPPORTED_PARSE_VERSIONS:
         raise ValueError(f"unsupported DWG parse backend version: {decode_version}")
@@ -294,19 +296,27 @@ class Layout:
             return
 
         if dxftype == "DIMENSION":
-            for (
-                handle,
-                user_text,
-                point10,
-                point13,
-                point14,
-                text_midpoint,
-                insert_point,
-                transforms,
-                angles,
-                common_data,
-                handle_data,
-            ) in raw.decode_dim_linear_entities(decode_path):
+            dimension_rows: list[tuple[str, tuple]] = []
+            for row in raw.decode_dim_linear_entities(decode_path):
+                dimension_rows.append(("LINEAR", row))
+            for row in raw.decode_dim_diameter_entities(decode_path):
+                dimension_rows.append(("DIAMETER", row))
+
+            dimension_rows.sort(key=lambda item: item[1][0])
+            for dimtype, row in dimension_rows:
+                (
+                    handle,
+                    user_text,
+                    point10,
+                    point13,
+                    point14,
+                    text_midpoint,
+                    insert_point,
+                    transforms,
+                    angles,
+                    common_data,
+                    handle_data,
+                ) = row
                 extrusion, insert_scale = transforms
                 text_rotation, horizontal_direction, ext_line_rotation, dim_rotation = angles
                 (
@@ -318,34 +328,39 @@ class Layout:
                     insert_rotation,
                 ) = common_data
                 dimstyle_handle, anonymous_block_handle = handle_data
+                common_dxf = _build_dimension_common_dxf(
+                    user_text=user_text,
+                    text_midpoint=text_midpoint,
+                    insert_point=insert_point,
+                    extrusion=extrusion,
+                    insert_scale=insert_scale,
+                    text_rotation=text_rotation,
+                    horizontal_direction=horizontal_direction,
+                    dim_flags=dim_flags,
+                    actual_measurement=actual_measurement,
+                    attachment_point=attachment_point,
+                    line_spacing_style=line_spacing_style,
+                    line_spacing_factor=line_spacing_factor,
+                    insert_rotation=insert_rotation,
+                    dimstyle_handle=dimstyle_handle,
+                    anonymous_block_handle=anonymous_block_handle,
+                )
+                dim_dxf = {
+                    "dimtype": dimtype,
+                    "defpoint": point10,
+                    "defpoint2": point13,
+                    "defpoint3": point14,
+                    "oblique_angle": math.degrees(ext_line_rotation),
+                    "angle": math.degrees(dim_rotation),
+                }
+                dim_dxf.update(common_dxf)
+                dim_dxf["common"] = dict(common_dxf)
                 yield Entity(
                     dxftype="DIMENSION",
                     handle=handle,
                     dxf=_attach_entity_color(
                         handle,
-                        {
-                            "dimtype": "LINEAR",
-                            "defpoint": point10,
-                            "defpoint2": point13,
-                            "defpoint3": point14,
-                            "text_midpoint": text_midpoint,
-                            "insert": insert_point,
-                            "extrusion": extrusion,
-                            "insert_scale": insert_scale,
-                            "text": user_text,
-                            "text_rotation": math.degrees(text_rotation),
-                            "horizontal_direction": math.degrees(horizontal_direction),
-                            "oblique_angle": math.degrees(ext_line_rotation),
-                            "angle": math.degrees(dim_rotation),
-                            "dim_flags": dim_flags,
-                            "actual_measurement": actual_measurement,
-                            "attachment_point": attachment_point,
-                            "line_spacing_style": line_spacing_style,
-                            "line_spacing_factor": line_spacing_factor,
-                            "insert_rotation": math.degrees(insert_rotation),
-                            "dimstyle_handle": dimstyle_handle,
-                            "anonymous_block_handle": anonymous_block_handle,
-                        },
+                        dim_dxf,
                         entity_style_map,
                         layer_color_map,
                     ),
@@ -358,7 +373,7 @@ class Layout:
         )
 
 
-def _convert_ac1024_to_ac1018(path: str) -> str:
+def _convert_to_ac1018(path: str, source_version: str) -> str:
     source = Path(path).resolve()
     if not source.exists():
         raise FileNotFoundError(path)
@@ -367,14 +382,15 @@ def _convert_ac1024_to_ac1018(path: str) -> str:
     xvfb_run = shutil.which("xvfb-run")
     if converter is None or xvfb_run is None:
         raise ValueError(
-            "AC1024 reading requires ODAFileConverter and xvfb-run for compatibility conversion."
+            f"{source_version} reading requires ODAFileConverter and xvfb-run "
+            "for compatibility conversion."
         )
 
     stat = source.stat()
     digest = hashlib.sha1(
         f"{source}:{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8")
     ).hexdigest()
-    cache_dir = Path(tempfile.gettempdir()) / "ezdwg_ac1024_cache"
+    cache_dir = Path(tempfile.gettempdir()) / "ezdwg_compat_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     converted_path = cache_dir / f"{digest}.dwg"
     if converted_path.exists():
@@ -402,11 +418,11 @@ def _convert_ac1024_to_ac1018(path: str) -> str:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if proc.returncode != 0:
             message = (proc.stderr or proc.stdout or "").strip()
-            raise ValueError(f"AC1024 conversion failed: {message}")
+            raise ValueError(f"{source_version} conversion failed: {message}")
 
         candidates = sorted(out_dir.glob("*.dwg")) + sorted(out_dir.glob("*.DWG"))
         if not candidates:
-            raise ValueError("AC1024 conversion produced no output DWG")
+            raise ValueError(f"{source_version} conversion produced no output DWG")
         shutil.copy2(candidates[0], converted_path)
 
     return str(converted_path)
@@ -480,6 +496,43 @@ def _decode_mtext_plain_text(value: str) -> str:
         i += 2
 
     return "".join(out)
+
+
+def _build_dimension_common_dxf(
+    *,
+    user_text: str,
+    text_midpoint: tuple[float, float, float],
+    insert_point: tuple[float, float, float] | None,
+    extrusion: tuple[float, float, float],
+    insert_scale: tuple[float, float, float],
+    text_rotation: float,
+    horizontal_direction: float,
+    dim_flags: int,
+    actual_measurement: float | None,
+    attachment_point: int | None,
+    line_spacing_style: int | None,
+    line_spacing_factor: float | None,
+    insert_rotation: float,
+    dimstyle_handle: int | None,
+    anonymous_block_handle: int | None,
+) -> dict:
+    return {
+        "text_midpoint": text_midpoint,
+        "insert": insert_point,
+        "extrusion": extrusion,
+        "insert_scale": insert_scale,
+        "text": user_text,
+        "text_rotation": math.degrees(text_rotation),
+        "horizontal_direction": math.degrees(horizontal_direction),
+        "dim_flags": dim_flags,
+        "actual_measurement": actual_measurement,
+        "attachment_point": attachment_point,
+        "line_spacing_style": line_spacing_style,
+        "line_spacing_factor": line_spacing_factor,
+        "insert_rotation": math.degrees(insert_rotation),
+        "dimstyle_handle": dimstyle_handle,
+        "anonymous_block_handle": anonymous_block_handle,
+    }
 
 
 def _normalize_types(types: str | Iterable[str] | None) -> list[str]:

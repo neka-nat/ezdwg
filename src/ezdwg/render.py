@@ -329,27 +329,40 @@ def _draw_text(ax, insert, text: str, height: float, rotation_deg: float, color=
 
 
 def _draw_dimension(ax, dxf, line_width: float, color=None):
+    dimtype = str(_dimension_value(dxf, "dimtype", "LINEAR")).upper()
     p13 = _safe_point(dxf.get("defpoint2"))
     p14 = _safe_point(dxf.get("defpoint3"))
     p10 = _safe_point(dxf.get("defpoint"))
-    text_mid = _safe_point(dxf.get("text_midpoint"))
-    insert = _safe_point(dxf.get("insert"))
-    text = dxf.get("text", "")
+    text_mid = _safe_point(_dimension_value(dxf, "text_midpoint"))
+    insert = _safe_point(_dimension_value(dxf, "insert"))
+    text = _dimension_value(dxf, "text", "")
 
     if p13 is None or p14 is None:
+        return
+
+    if dimtype == "DIAMETER":
+        _draw_dimension_diameter(
+            ax,
+            dxf,
+            p13=p13,
+            p14=p14,
+            text_mid=text_mid,
+            line_width=line_width,
+            color=color,
+        )
         return
 
     if p10 is None:
         p10 = _midpoint(p13, p14)
 
-    dim_dir = _direction_from_angle(dxf.get("angle"))
+    dim_dir = _direction_from_angle(_dimension_value(dxf, "angle"))
     if dim_dir is None:
         dim_dir = _normalize2((p14[0] - p13[0], p14[1] - p13[1]))
     if dim_dir is None:
         return
 
     normal = (-dim_dir[1], dim_dir[0])
-    oblique_deg = dxf.get("oblique_angle", 0.0) or 0.0
+    oblique_deg = _dimension_value(dxf, "oblique_angle", 0.0) or 0.0
     ext_dir = _rotate2(normal, _deg_to_rad(oblique_deg))
     ext_dir = _normalize2(ext_dir) or normal
 
@@ -385,11 +398,57 @@ def _draw_dimension(ax, dxf, line_width: float, color=None):
         )
 
     if text and text_pos is not None:
-        height = dxf.get("char_height") or dxf.get("height") or max(0.8, dim_len * 0.06)
-        rotation = dxf.get("text_rotation")
+        height = _dimension_value(dxf, "char_height") or _dimension_value(
+            dxf, "height"
+        ) or max(0.8, dim_len * 0.06)
+        rotation = _dimension_value(dxf, "text_rotation")
         if rotation is None:
-            rotation = dxf.get("angle", 0.0)
+            rotation = _dimension_value(dxf, "angle", 0.0)
         _draw_text(ax, text_pos, text, height, rotation, color=color)
+
+
+def _draw_dimension_diameter(ax, dxf, p13, p14, text_mid, line_width: float, color=None):
+    axis = _normalize2((p14[0] - p13[0], p14[1] - p13[1]))
+    if axis is None:
+        return
+    normal = (-axis[1], axis[0])
+    dim_len = _distance2((p13[0], p13[1]), (p14[0], p14[1]))
+    if dim_len <= 1.0e-12:
+        return
+
+    ax.plot([p13[0], p14[0]], [p13[1], p14[1]], linewidth=line_width, color=color)
+    _draw_dim_ticks(
+        ax,
+        (p13[0], p13[1]),
+        (p14[0], p14[1]),
+        axis,
+        normal,
+        dim_len,
+        line_width,
+        color=color,
+    )
+
+    text = _resolve_dimension_text(dxf, _dimension_value(dxf, "text", ""))
+    if not text:
+        return
+
+    if _is_origin_point(text_mid):
+        offset = max(0.5, dim_len * 0.06)
+        text_mid = (
+            (p13[0] + p14[0]) * 0.5 + normal[0] * offset,
+            (p13[1] + p14[1]) * 0.5 + normal[1] * offset,
+            0.0,
+        )
+    if text_mid is None:
+        return
+
+    height = _dimension_value(dxf, "char_height") or _dimension_value(dxf, "height") or max(
+        0.8, dim_len * 0.06
+    )
+    rotation = _dimension_value(dxf, "text_rotation")
+    if rotation is None:
+        rotation = _dimension_value(dxf, "angle", 0.0)
+    _draw_text(ax, text_mid, text, height, rotation, color=color)
 
 
 def _apply_equal_limits(ax):
@@ -634,13 +693,22 @@ def _midpoint(a, b):
 
 
 def _resolve_dimension_text(dxf, text):
-    measurement = dxf.get("actual_measurement")
+    measurement = _dimension_value(dxf, "actual_measurement")
     if (not text or text == "<>") and measurement is not None:
         return f"{measurement:g}"
     # Constraint-like labels (e.g. KEYwidth=...) are not the rendered dimension text.
     if text and "=" in text and measurement is not None:
         return f"{measurement:g}"
     return text
+
+
+def _dimension_value(dxf, key, default=None):
+    if key in dxf:
+        return dxf.get(key, default)
+    common = dxf.get("common")
+    if isinstance(common, dict):
+        return common.get(key, default)
+    return default
 
 
 def _draw_dim_ticks(ax, p1, p2, dim_dir, normal, dim_len, line_width, color=None):

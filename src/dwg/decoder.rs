@@ -32,7 +32,7 @@ impl<'a> Decoder<'a> {
     pub fn ensure_supported(&self) -> Result<()> {
         match self.version {
             DwgVersion::R2000 | DwgVersion::R2004 | DwgVersion::R2010 => Ok(()),
-            DwgVersion::Unknown(_) => Err(DwgError::new(
+            DwgVersion::R2007 | DwgVersion::R2013 | DwgVersion::Unknown(_) => Err(DwgError::new(
                 ErrorKind::Unsupported,
                 format!("unsupported DWG version: {}", self.version.as_str()),
             )),
@@ -45,7 +45,7 @@ impl<'a> Decoder<'a> {
             DwgVersion::R2004 | DwgVersion::R2010 => {
                 r2004::parse_section_directory(self.bytes, &self.config)
             }
-            DwgVersion::Unknown(_) => Err(DwgError::new(
+            DwgVersion::R2007 | DwgVersion::R2013 | DwgVersion::Unknown(_) => Err(DwgError::new(
                 ErrorKind::Unsupported,
                 format!("unsupported DWG version: {}", self.version.as_str()),
             )),
@@ -64,7 +64,7 @@ impl<'a> Decoder<'a> {
             DwgVersion::R2004 | DwgVersion::R2010 => {
                 r2004::load_section_by_index(self.bytes, directory, index, &self.config)
             }
-            DwgVersion::Unknown(_) => Err(DwgError::new(
+            DwgVersion::R2007 | DwgVersion::R2013 | DwgVersion::Unknown(_) => Err(DwgError::new(
                 ErrorKind::Unsupported,
                 format!("unsupported DWG version: {}", self.version.as_str()),
             )),
@@ -77,7 +77,7 @@ impl<'a> Decoder<'a> {
             DwgVersion::R2004 | DwgVersion::R2010 => {
                 r2004::build_object_index(self.bytes, &self.config)
             }
-            DwgVersion::Unknown(_) => Err(DwgError::new(
+            DwgVersion::R2007 | DwgVersion::R2013 | DwgVersion::Unknown(_) => Err(DwgError::new(
                 ErrorKind::Unsupported,
                 format!("unsupported DWG version: {}", self.version.as_str()),
             )),
@@ -90,7 +90,7 @@ impl<'a> Decoder<'a> {
             DwgVersion::R2004 | DwgVersion::R2010 => {
                 r2004::parse_object_record(self.bytes, offset, &self.config)
             }
-            DwgVersion::Unknown(_) => Err(DwgError::new(
+            DwgVersion::R2007 | DwgVersion::R2013 | DwgVersion::Unknown(_) => Err(DwgError::new(
                 ErrorKind::Unsupported,
                 format!("unsupported DWG version: {}", self.version.as_str()),
             )),
@@ -103,7 +103,7 @@ impl<'a> Decoder<'a> {
             DwgVersion::R2004 | DwgVersion::R2010 => {
                 r2004::load_dynamic_type_map(self.bytes, &self.config)
             }
-            DwgVersion::Unknown(_) => Err(DwgError::new(
+            DwgVersion::R2007 | DwgVersion::R2013 | DwgVersion::Unknown(_) => Err(DwgError::new(
                 ErrorKind::Unsupported,
                 format!("unsupported DWG version: {}", self.version.as_str()),
             )),
