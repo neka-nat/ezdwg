@@ -352,6 +352,18 @@ def _draw_dimension(ax, dxf, line_width: float, color=None):
         )
         return
 
+    if dimtype == "RADIUS":
+        _draw_dimension_radius(
+            ax,
+            dxf,
+            p13=p13,
+            p14=p14,
+            text_mid=text_mid,
+            line_width=line_width,
+            color=color,
+        )
+        return
+
     if p10 is None:
         p10 = _midpoint(p13, p14)
 
@@ -427,6 +439,41 @@ def _draw_dimension_diameter(ax, dxf, p13, p14, text_mid, line_width: float, col
         line_width,
         color=color,
     )
+
+    text = _resolve_dimension_text(dxf, _dimension_value(dxf, "text", ""))
+    if not text:
+        return
+
+    if _is_origin_point(text_mid):
+        offset = max(0.5, dim_len * 0.06)
+        text_mid = (
+            (p13[0] + p14[0]) * 0.5 + normal[0] * offset,
+            (p13[1] + p14[1]) * 0.5 + normal[1] * offset,
+            0.0,
+        )
+    if text_mid is None:
+        return
+
+    height = _dimension_value(dxf, "char_height") or _dimension_value(dxf, "height") or max(
+        0.8, dim_len * 0.06
+    )
+    rotation = _dimension_value(dxf, "text_rotation")
+    if rotation is None:
+        rotation = _dimension_value(dxf, "angle", 0.0)
+    _draw_text(ax, text_mid, text, height, rotation, color=color)
+
+
+def _draw_dimension_radius(ax, dxf, p13, p14, text_mid, line_width: float, color=None):
+    axis = _normalize2((p14[0] - p13[0], p14[1] - p13[1]))
+    if axis is None:
+        return
+    normal = (-axis[1], axis[0])
+    dim_len = _distance2((p13[0], p13[1]), (p14[0], p14[1]))
+    if dim_len <= 1.0e-12:
+        return
+
+    ax.plot([p13[0], p14[0]], [p13[1], p14[1]], linewidth=line_width, color=color)
+    _draw_dim_single_tick(ax, (p14[0], p14[1]), axis, normal, dim_len, line_width, color=color)
 
     text = _resolve_dimension_text(dxf, _dimension_value(dxf, "text", ""))
     if not text:
@@ -726,3 +773,19 @@ def _draw_dim_ticks(ax, p1, p2, dim_dir, normal, dim_len, line_width, color=None
             linewidth=max(0.5, line_width * 0.9),
             color=color,
         )
+
+
+def _draw_dim_single_tick(ax, p, dim_dir, normal, dim_len, line_width, color=None):
+    tick_len = max(0.25, dim_len * 0.03)
+    dir1 = _normalize2((dim_dir[0] + normal[0], dim_dir[1] + normal[1]))
+    dir2 = _normalize2((dim_dir[0] - normal[0], dim_dir[1] - normal[1]))
+    tick_dir = dir1 or dir2
+    if tick_dir is None:
+        return
+    hw = tick_len * 0.5
+    ax.plot(
+        [p[0] - tick_dir[0] * hw, p[0] + tick_dir[0] * hw],
+        [p[1] - tick_dir[1] * hw, p[1] + tick_dir[1] * hw],
+        linewidth=max(0.5, line_width * 0.9),
+        color=color,
+    )

@@ -347,6 +347,19 @@ pub fn decode_entity_styles(
                 common.true_color,
                 common.layer_handle,
             ));
+        } else if matches_type_name(header.type_code, 0x19, "DIM_RADIUS", &dynamic_types) {
+            let entity = match entities::decode_dim_radius(&mut reader) {
+                Ok(entity) => entity,
+                Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
+                Err(err) => return Err(to_py_err(err)),
+            };
+            let common = &entity.common;
+            result.push((
+                common.handle,
+                common.color_index,
+                common.true_color,
+                common.layer_handle,
+            ));
         } else {
             continue;
         }
@@ -911,6 +924,86 @@ pub fn decode_dim_diameter_entities(
             return Err(to_py_err(err));
         }
         let entity = match entities::decode_dim_diameter(&mut reader) {
+            Ok(entity) => entity,
+            Err(err) if best_effort => continue,
+            Err(err) => return Err(to_py_err(err)),
+        };
+        let common = &entity.common;
+        result.push((
+            common.handle,
+            common.user_text.clone(),
+            entity.point10,
+            entity.point13,
+            entity.point14,
+            common.text_midpoint,
+            common.insert_point,
+            (common.extrusion, common.insert_scale),
+            (
+                common.text_rotation,
+                common.horizontal_direction,
+                entity.ext_line_rotation,
+                entity.dim_rotation,
+            ),
+            (
+                common.dim_flags,
+                common.actual_measurement,
+                common.attachment_point,
+                common.line_spacing_style,
+                common.line_spacing_factor,
+                common.insert_rotation,
+            ),
+            (common.dimstyle_handle, common.anonymous_block_handle),
+        ));
+        if let Some(limit) = limit {
+            if result.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(result)
+}
+
+#[pyfunction(signature = (path, limit=None))]
+pub fn decode_dim_radius_entities(
+    path: &str,
+    limit: Option<usize>,
+) -> PyResult<
+    Vec<(
+        u64,
+        String,
+        (f64, f64, f64),
+        (f64, f64, f64),
+        (f64, f64, f64),
+        (f64, f64, f64),
+        Option<(f64, f64, f64)>,
+        ((f64, f64, f64), (f64, f64, f64)),
+        (f64, f64, f64, f64),
+        (u8, Option<f64>, Option<u16>, Option<u16>, Option<f64>, f64),
+        (Option<u64>, Option<u64>),
+    )>,
+> {
+    let bytes = file_open::read_file(path).map_err(to_py_err)?;
+    let decoder = build_decoder(&bytes).map_err(to_py_err)?;
+    let best_effort = is_best_effort_compat_version(&decoder);
+    let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
+    let index = decoder.build_object_index().map_err(to_py_err)?;
+    let mut result = Vec::new();
+    for obj in index.objects.iter() {
+        let Some((record, header)) = parse_record_and_header(&decoder, obj.offset, best_effort)?
+        else {
+            continue;
+        };
+        if !matches_type_name(header.type_code, 0x19, "DIM_RADIUS", &dynamic_types) {
+            continue;
+        }
+        let mut reader = record.bit_reader();
+        if let Err(err) = reader.read_bs() {
+            if best_effort {
+                continue;
+            }
+            return Err(to_py_err(err));
+        }
+        let entity = match entities::decode_dim_radius(&mut reader) {
             Ok(entity) => entity,
             Err(err) if best_effort => continue,
             Err(err) => return Err(to_py_err(err)),
@@ -1539,6 +1632,7 @@ pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(decode_mtext_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_dim_linear_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_dim_diameter_entities, module)?)?;
+    module.add_function(wrap_pyfunction!(decode_dim_radius_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_insert_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_polyline_2d_entities, module)?)?;
     module.add_function(wrap_pyfunction!(
@@ -1874,6 +1968,7 @@ fn builtin_code_from_name(name: &str) -> Option<u16> {
         "MTEXT" => Some(0x2C),
         "LWPOLYLINE" => Some(0x4D),
         "DIM_LINEAR" => Some(0x15),
+        "DIM_RADIUS" => Some(0x19),
         "DIM_DIAMETER" => Some(0x1A),
         "DIMENSION" => Some(0x15),
         _ => None,

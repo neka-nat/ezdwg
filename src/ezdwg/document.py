@@ -32,6 +32,7 @@ SUPPORTED_ENTITY_TYPES = (
 
 TYPE_ALIASES = {
     "DIM_LINEAR": "DIMENSION",
+    "DIM_RADIUS": "DIMENSION",
     "DIM_DIAMETER": "DIMENSION",
 }
 
@@ -299,6 +300,8 @@ class Layout:
             dimension_rows: list[tuple[str, tuple]] = []
             for row in raw.decode_dim_linear_entities(decode_path):
                 dimension_rows.append(("LINEAR", row))
+            for row in raw.decode_dim_radius_entities(decode_path):
+                dimension_rows.append(("RADIUS", row))
             for row in raw.decode_dim_diameter_entities(decode_path):
                 dimension_rows.append(("DIAMETER", row))
 

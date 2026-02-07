@@ -55,6 +55,7 @@ def test_dimension_entity_contains_common_mapping(monkeypatch) -> None:
             )
         ],
     )
+    monkeypatch.setattr(document_module.raw, "decode_dim_radius_entities", lambda _path: [])
     monkeypatch.setattr(document_module.raw, "decode_dim_diameter_entities", lambda _path: [])
 
     doc = Document(
@@ -101,6 +102,25 @@ def test_dimension_entity_merges_linear_and_diameter(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         document_module.raw,
+        "decode_dim_radius_entities",
+        lambda _path: [
+            (
+                150,
+                "<>",
+                (20.0, 20.0, 0.0),
+                (20.0, 20.0, 0.0),
+                (22.0, 20.0, 0.0),
+                (21.0, 20.8, 0.0),
+                None,
+                ((0.0, 0.0, 1.0), (1.0, 1.0, 1.0)),
+                (0.0, 0.0, 0.0, 0.0),
+                (0, 2.0, None, None, None, 0.0),
+                (None, None),
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        document_module.raw,
         "decode_dim_diameter_entities",
         lambda _path: [
             (
@@ -128,9 +148,10 @@ def test_dimension_entity_merges_linear_and_diameter(monkeypatch) -> None:
     layout = Layout(doc=doc, name="MODELSPACE")
     entities = list(layout.query("DIMENSION"))
 
-    assert [e.handle for e in entities] == [100, 200]
+    assert [e.handle for e in entities] == [100, 150, 200]
     assert entities[0].dxf["dimtype"] == "DIAMETER"
-    assert entities[1].dxf["dimtype"] == "LINEAR"
+    assert entities[1].dxf["dimtype"] == "RADIUS"
+    assert entities[2].dxf["dimtype"] == "LINEAR"
 
 
 def test_dimension_value_reads_common_mapping() -> None:
