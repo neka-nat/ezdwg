@@ -74,7 +74,8 @@ raw.decode_line_entities("path/to/file.dwg")
 ## Limitations
 - Read‑only
 - High-level API supports R2000 (AC1015), R2004 (AC1018), R2007 (AC1021), R2010 (AC1024), and R2013 (AC1027)
-- AC1021/AC1024/AC1027 use native decode for LINE/ARC/LWPOLYLINE and are regression-tested against paired DXF samples
+- AC1021/AC1024/AC1027 use native decode for LINE/ARC/LWPOLYLINE/POINT/CIRCLE/ELLIPSE and are regression-tested against paired DXF samples
+- TEXT/MTEXT/DIMENSION decoders now use version-aware common header paths internally; R2007+ dedicated sample regression coverage is still pending
 - AC1021/AC1024/AC1027 entity style/layer color resolution is currently best-effort on some files
 - Legacy `POLYLINE/VERTEX/SEQEND` samples are not yet covered in AC1018 test data
 - ARC angles in raw API are **radians** (high‑level API converts to degrees)

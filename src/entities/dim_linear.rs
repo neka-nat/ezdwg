@@ -2,8 +2,9 @@ use crate::bit::{BitReader, Endian};
 use crate::core::error::{DwgError, ErrorKind};
 use crate::core::result::Result;
 use crate::entities::common::{
-    parse_common_entity_handles, parse_common_entity_header, read_handle_reference,
-    CommonEntityHeader,
+    parse_common_entity_handles, parse_common_entity_header, parse_common_entity_header_r2007,
+    parse_common_entity_header_r2010, parse_common_entity_header_r2013,
+    parse_common_entity_layer_handle, read_handle_reference, CommonEntityHeader,
 };
 
 #[derive(Debug, Clone)]
@@ -52,6 +53,35 @@ struct DimLinearVariant {
 
 pub fn decode_dim_linear(reader: &mut BitReader<'_>) -> Result<DimLinearEntity> {
     let header = parse_common_entity_header(reader)?;
+    decode_dim_linear_with_header(reader, header, false)
+}
+
+pub fn decode_dim_linear_r2007(reader: &mut BitReader<'_>) -> Result<DimLinearEntity> {
+    let header = parse_common_entity_header_r2007(reader)?;
+    decode_dim_linear_with_header(reader, header, true)
+}
+
+pub fn decode_dim_linear_r2010(
+    reader: &mut BitReader<'_>,
+    object_data_end_bit: u32,
+) -> Result<DimLinearEntity> {
+    let header = parse_common_entity_header_r2010(reader, object_data_end_bit)?;
+    decode_dim_linear_with_header(reader, header, true)
+}
+
+pub fn decode_dim_linear_r2013(
+    reader: &mut BitReader<'_>,
+    object_data_end_bit: u32,
+) -> Result<DimLinearEntity> {
+    let header = parse_common_entity_header_r2013(reader, object_data_end_bit)?;
+    decode_dim_linear_with_header(reader, header, true)
+}
+
+fn decode_dim_linear_with_header(
+    reader: &mut BitReader<'_>,
+    header: CommonEntityHeader,
+    allow_handle_decode_failure: bool,
+) -> Result<DimLinearEntity> {
     let data_pos = reader.get_pos();
 
     let variants = [
@@ -73,7 +103,7 @@ pub fn decode_dim_linear(reader: &mut BitReader<'_>) -> Result<DimLinearEntity> 
     let mut last_error: Option<DwgError> = None;
     for parse_variant in variants {
         reader.set_pos(data_pos.0, data_pos.1);
-        match decode_variant(reader, &header, parse_variant) {
+        match decode_variant(reader, &header, parse_variant, allow_handle_decode_failure) {
             Ok(entity) => {
                 let score = plausibility_score(&entity);
                 match &best {
@@ -97,6 +127,7 @@ fn decode_variant(
     reader: &mut BitReader<'_>,
     header: &CommonEntityHeader,
     parse_variant: DimLinearVariant,
+    allow_handle_decode_failure: bool,
 ) -> Result<DimLinearEntity> {
     let extrusion = reader.read_3bd()?;
     let text_mid_x = reader.read_rd(Endian::Little)?;
@@ -147,20 +178,30 @@ fn decode_variant(
     let ext_line_rotation = reader.read_bd()?;
     let dim_rotation = reader.read_bd()?;
 
-    let (dimstyle_handle, anonymous_block_handle, layer_handle) =
-        if parse_variant.style_before_common {
-            let dimstyle = Some(read_handle_reference(reader, header.handle)?);
-            let block = Some(read_handle_reference(reader, header.handle)?);
-            let common_handles = parse_common_entity_handles(reader, header)?;
-            (dimstyle, block, common_handles.layer)
-        } else {
-            let common_handles = parse_common_entity_handles(reader, header)?;
-            (
+    // Handles are stored in the handle stream at obj_size bit offset.
+    reader.set_bit_pos(header.obj_size);
+    let handles_pos = reader.get_pos();
+    let (dimstyle_handle, anonymous_block_handle, layer_handle) = if allow_handle_decode_failure {
+        let layer = parse_common_entity_layer_handle(reader, header).unwrap_or(0);
+        (None, None, layer)
+    } else if parse_variant.style_before_common {
+        let dimstyle = Some(read_handle_reference(reader, header.handle)?);
+        let block = Some(read_handle_reference(reader, header.handle)?);
+        let common_handles = parse_common_entity_handles(reader, header)?;
+        (dimstyle, block, common_handles.layer)
+    } else {
+        match parse_common_entity_handles(reader, header) {
+            Ok(common_handles) => (
                 read_handle_reference(reader, header.handle).ok(),
                 read_handle_reference(reader, header.handle).ok(),
                 common_handles.layer,
-            )
-        };
+            ),
+            Err(err) => {
+                reader.set_pos(handles_pos.0, handles_pos.1);
+                return Err(err);
+            }
+        }
+    };
 
     let common = DimensionCommonData {
         handle: header.handle,

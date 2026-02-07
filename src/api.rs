@@ -242,7 +242,7 @@ pub fn decode_entity_styles(
                 entity.layer_handle,
             ));
         } else if matches_type_name(header.type_code, 0x1B, "POINT", &dynamic_types) {
-            let entity = match entities::decode_point(&mut reader) {
+            let entity = match decode_point_for_version(&mut reader, decoder.version(), &header) {
                 Ok(entity) => entity,
                 Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
                 Err(err) => return Err(to_py_err(err)),
@@ -266,7 +266,7 @@ pub fn decode_entity_styles(
                 entity.layer_handle,
             ));
         } else if matches_type_name(header.type_code, 0x12, "CIRCLE", &dynamic_types) {
-            let entity = match entities::decode_circle(&mut reader) {
+            let entity = match decode_circle_for_version(&mut reader, decoder.version(), &header) {
                 Ok(entity) => entity,
                 Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
                 Err(err) => return Err(to_py_err(err)),
@@ -278,7 +278,7 @@ pub fn decode_entity_styles(
                 entity.layer_handle,
             ));
         } else if matches_type_name(header.type_code, 0x23, "ELLIPSE", &dynamic_types) {
-            let entity = match entities::decode_ellipse(&mut reader) {
+            let entity = match decode_ellipse_for_version(&mut reader, decoder.version(), &header) {
                 Ok(entity) => entity,
                 Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
                 Err(err) => return Err(to_py_err(err)),
@@ -290,7 +290,7 @@ pub fn decode_entity_styles(
                 entity.layer_handle,
             ));
         } else if matches_type_name(header.type_code, 0x01, "TEXT", &dynamic_types) {
-            let entity = match entities::decode_text(&mut reader) {
+            let entity = match decode_text_for_version(&mut reader, decoder.version(), &header) {
                 Ok(entity) => entity,
                 Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
                 Err(err) => return Err(to_py_err(err)),
@@ -302,7 +302,7 @@ pub fn decode_entity_styles(
                 entity.layer_handle,
             ));
         } else if matches_type_name(header.type_code, 0x2C, "MTEXT", &dynamic_types) {
-            let entity = match entities::decode_mtext(&mut reader) {
+            let entity = match decode_mtext_for_version(&mut reader, decoder.version(), &header) {
                 Ok(entity) => entity,
                 Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
                 Err(err) => return Err(to_py_err(err)),
@@ -327,11 +327,12 @@ pub fn decode_entity_styles(
                 entity.layer_handle,
             ));
         } else if matches_type_name(header.type_code, 0x15, "DIM_LINEAR", &dynamic_types) {
-            let entity = match entities::decode_dim_linear(&mut reader) {
-                Ok(entity) => entity,
-                Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
-                Err(err) => return Err(to_py_err(err)),
-            };
+            let entity =
+                match decode_dim_linear_for_version(&mut reader, decoder.version(), &header) {
+                    Ok(entity) => entity,
+                    Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
+                    Err(err) => return Err(to_py_err(err)),
+                };
             let common = &entity.common;
             result.push((
                 common.handle,
@@ -340,11 +341,12 @@ pub fn decode_entity_styles(
                 common.layer_handle,
             ));
         } else if matches_type_name(header.type_code, 0x1A, "DIM_DIAMETER", &dynamic_types) {
-            let entity = match entities::decode_dim_diameter(&mut reader) {
-                Ok(entity) => entity,
-                Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
-                Err(err) => return Err(to_py_err(err)),
-            };
+            let entity =
+                match decode_dim_diameter_for_version(&mut reader, decoder.version(), &header) {
+                    Ok(entity) => entity,
+                    Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
+                    Err(err) => return Err(to_py_err(err)),
+                };
             let common = &entity.common;
             result.push((
                 common.handle,
@@ -353,11 +355,12 @@ pub fn decode_entity_styles(
                 common.layer_handle,
             ));
         } else if matches_type_name(header.type_code, 0x19, "DIM_RADIUS", &dynamic_types) {
-            let entity = match entities::decode_dim_radius(&mut reader) {
-                Ok(entity) => entity,
-                Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
-                Err(err) => return Err(to_py_err(err)),
-            };
+            let entity =
+                match decode_dim_radius_for_version(&mut reader, decoder.version(), &header) {
+                    Ok(entity) => entity,
+                    Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
+                    Err(err) => return Err(to_py_err(err)),
+                };
             let common = &entity.common;
             result.push((
                 common.handle,
@@ -498,7 +501,7 @@ pub fn decode_point_entities(
             }
             return Err(to_py_err(err));
         }
-        let entity = match entities::decode_point(&mut reader) {
+        let entity = match decode_point_for_version(&mut reader, decoder.version(), &header) {
             Ok(entity) => entity,
             Err(err) if best_effort => continue,
             Err(err) => return Err(to_py_err(err)),
@@ -594,7 +597,7 @@ pub fn decode_circle_entities(
             }
             return Err(to_py_err(err));
         }
-        let entity = match entities::decode_circle(&mut reader) {
+        let entity = match decode_circle_for_version(&mut reader, decoder.version(), &header) {
             Ok(entity) => entity,
             Err(err) if best_effort => continue,
             Err(err) => return Err(to_py_err(err)),
@@ -651,7 +654,7 @@ pub fn decode_ellipse_entities(
             }
             return Err(to_py_err(err));
         }
-        let entity = match entities::decode_ellipse(&mut reader) {
+        let entity = match decode_ellipse_for_version(&mut reader, decoder.version(), &header) {
             Ok(entity) => entity,
             Err(err) if best_effort => continue,
             Err(err) => return Err(to_py_err(err)),
@@ -711,7 +714,7 @@ pub fn decode_text_entities(
             }
             return Err(to_py_err(err));
         }
-        let entity = match entities::decode_text(&mut reader) {
+        let entity = match decode_text_for_version(&mut reader, decoder.version(), &header) {
             Ok(entity) => entity,
             Err(err) if best_effort => continue,
             Err(err) => return Err(to_py_err(err)),
@@ -783,7 +786,7 @@ pub fn decode_mtext_entities(
             }
             return Err(to_py_err(err));
         }
-        let entity = match entities::decode_mtext(&mut reader) {
+        let entity = match decode_mtext_for_version(&mut reader, decoder.version(), &header) {
             Ok(entity) => entity,
             Err(err) if best_effort => continue,
             Err(err) => return Err(to_py_err(err)),
@@ -848,7 +851,7 @@ pub fn decode_dim_linear_entities(
             }
             return Err(to_py_err(err));
         }
-        let entity = match entities::decode_dim_linear(&mut reader) {
+        let entity = match decode_dim_linear_for_version(&mut reader, decoder.version(), &header) {
             Ok(entity) => entity,
             Err(err) if best_effort => continue,
             Err(err) => return Err(to_py_err(err)),
@@ -928,7 +931,8 @@ pub fn decode_dim_diameter_entities(
             }
             return Err(to_py_err(err));
         }
-        let entity = match entities::decode_dim_diameter(&mut reader) {
+        let entity = match decode_dim_diameter_for_version(&mut reader, decoder.version(), &header)
+        {
             Ok(entity) => entity,
             Err(err) if best_effort => continue,
             Err(err) => return Err(to_py_err(err)),
@@ -1008,7 +1012,7 @@ pub fn decode_dim_radius_entities(
             }
             return Err(to_py_err(err));
         }
-        let entity = match entities::decode_dim_radius(&mut reader) {
+        let entity = match decode_dim_radius_for_version(&mut reader, decoder.version(), &header) {
             Ok(entity) => entity,
             Err(err) if best_effort => continue,
             Err(err) => return Err(to_py_err(err)),
@@ -1710,6 +1714,25 @@ fn decode_line_for_version(
     }
 }
 
+fn decode_point_for_version(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+    header: &ApiObjectHeader,
+) -> crate::core::result::Result<entities::PointEntity> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_point_r2010(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2013 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_point_r2013(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2007 => entities::decode_point_r2007(reader),
+        _ => entities::decode_point(reader),
+    }
+}
+
 fn decode_arc_for_version(
     reader: &mut BitReader<'_>,
     version: &version::DwgVersion,
@@ -1726,6 +1749,139 @@ fn decode_arc_for_version(
         }
         version::DwgVersion::R2007 => entities::decode_arc_r2007(reader),
         _ => entities::decode_arc(reader),
+    }
+}
+
+fn decode_circle_for_version(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+    header: &ApiObjectHeader,
+) -> crate::core::result::Result<entities::CircleEntity> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_circle_r2010(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2013 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_circle_r2013(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2007 => entities::decode_circle_r2007(reader),
+        _ => entities::decode_circle(reader),
+    }
+}
+
+fn decode_ellipse_for_version(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+    header: &ApiObjectHeader,
+) -> crate::core::result::Result<entities::EllipseEntity> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_ellipse_r2010(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2013 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_ellipse_r2013(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2007 => entities::decode_ellipse_r2007(reader),
+        _ => entities::decode_ellipse(reader),
+    }
+}
+
+fn decode_text_for_version(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+    header: &ApiObjectHeader,
+) -> crate::core::result::Result<entities::TextEntity> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_text_r2010(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2013 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_text_r2013(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2007 => entities::decode_text_r2007(reader),
+        _ => entities::decode_text(reader),
+    }
+}
+
+fn decode_mtext_for_version(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+    header: &ApiObjectHeader,
+) -> crate::core::result::Result<entities::MTextEntity> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_mtext_r2010(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2013 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_mtext_r2013(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2007 => entities::decode_mtext_r2007(reader),
+        _ => entities::decode_mtext(reader),
+    }
+}
+
+fn decode_dim_linear_for_version(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+    header: &ApiObjectHeader,
+) -> crate::core::result::Result<entities::DimLinearEntity> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_dim_linear_r2010(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2013 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_dim_linear_r2013(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2007 => entities::decode_dim_linear_r2007(reader),
+        _ => entities::decode_dim_linear(reader),
+    }
+}
+
+fn decode_dim_radius_for_version(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+    header: &ApiObjectHeader,
+) -> crate::core::result::Result<entities::DimRadiusEntity> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_dim_radius_r2010(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2013 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_dim_radius_r2013(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2007 => entities::decode_dim_radius_r2007(reader),
+        _ => entities::decode_dim_radius(reader),
+    }
+}
+
+fn decode_dim_diameter_for_version(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+    header: &ApiObjectHeader,
+) -> crate::core::result::Result<entities::DimDiameterEntity> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_dim_diameter_r2010(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2013 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_dim_diameter_r2013(reader, object_data_end_bit)
+        }
+        version::DwgVersion::R2007 => entities::decode_dim_diameter_r2007(reader),
+        _ => entities::decode_dim_diameter(reader),
     }
 }
 

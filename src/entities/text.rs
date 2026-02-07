@@ -1,7 +1,10 @@
 use crate::bit::{BitReader, Endian};
+use crate::core::error::ErrorKind;
 use crate::core::result::Result;
 use crate::entities::common::{
-    parse_common_entity_handles, parse_common_entity_header, read_handle_reference,
+    parse_common_entity_handles, parse_common_entity_header, parse_common_entity_header_r2007,
+    parse_common_entity_header_r2010, parse_common_entity_header_r2013,
+    parse_common_entity_layer_handle, read_handle_reference, CommonEntityHeader,
 };
 
 #[derive(Debug, Clone)]
@@ -27,7 +30,35 @@ pub struct TextEntity {
 
 pub fn decode_text(reader: &mut BitReader<'_>) -> Result<TextEntity> {
     let header = parse_common_entity_header(reader)?;
+    decode_text_with_header(reader, header, false)
+}
 
+pub fn decode_text_r2007(reader: &mut BitReader<'_>) -> Result<TextEntity> {
+    let header = parse_common_entity_header_r2007(reader)?;
+    decode_text_with_header(reader, header, true)
+}
+
+pub fn decode_text_r2010(
+    reader: &mut BitReader<'_>,
+    object_data_end_bit: u32,
+) -> Result<TextEntity> {
+    let header = parse_common_entity_header_r2010(reader, object_data_end_bit)?;
+    decode_text_with_header(reader, header, true)
+}
+
+pub fn decode_text_r2013(
+    reader: &mut BitReader<'_>,
+    object_data_end_bit: u32,
+) -> Result<TextEntity> {
+    let header = parse_common_entity_header_r2013(reader, object_data_end_bit)?;
+    decode_text_with_header(reader, header, true)
+}
+
+fn decode_text_with_header(
+    reader: &mut BitReader<'_>,
+    header: CommonEntityHeader,
+    allow_handle_decode_failure: bool,
+) -> Result<TextEntity> {
     let data_flags = reader.read_rc()?;
 
     let elevation = if (data_flags & 0x01) == 0 {
@@ -90,14 +121,33 @@ pub fn decode_text(reader: &mut BitReader<'_>) -> Result<TextEntity> {
         0
     };
 
-    let common_handles = parse_common_entity_handles(reader, &header)?;
-    let style_handle = read_handle_reference(reader, header.handle).ok();
+    // Handles are stored in the handle stream at obj_size bit offset.
+    reader.set_bit_pos(header.obj_size);
+    let handles_pos = reader.get_pos();
+    let (layer_handle, style_handle) = match parse_common_entity_handles(reader, &header) {
+        Ok(common_handles) => (
+            common_handles.layer,
+            read_handle_reference(reader, header.handle).ok(),
+        ),
+        Err(err)
+            if allow_handle_decode_failure
+                && matches!(
+                    err.kind,
+                    ErrorKind::Format | ErrorKind::Decode | ErrorKind::Io
+                ) =>
+        {
+            reader.set_pos(handles_pos.0, handles_pos.1);
+            let layer = parse_common_entity_layer_handle(reader, &header).unwrap_or(0);
+            (layer, None)
+        }
+        Err(err) => return Err(err),
+    };
 
     Ok(TextEntity {
         handle: header.handle,
         color_index: header.color.index,
         true_color: header.color.true_color,
-        layer_handle: common_handles.layer,
+        layer_handle,
         text,
         insertion: (insertion_x, insertion_y, elevation),
         alignment,
