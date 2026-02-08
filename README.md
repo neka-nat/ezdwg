@@ -1,4 +1,5 @@
 # ezdwg
+[![PyPI version](https://badge.fury.io/py/ezdwg.svg)](https://badge.fury.io/py/ezdwg)
 
 Minimal DWG (R2000-R2013 / AC1015-AC1027) reader with a Python API inspired by ezdxf.
 This project is **DWG read-focused** today and focuses on a simple, friendly API.
