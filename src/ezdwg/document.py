@@ -17,9 +17,13 @@ SUPPORTED_ENTITY_TYPES = (
     "ARC",
     "CIRCLE",
     "ELLIPSE",
+    "SPLINE",
     "POINT",
     "TEXT",
+    "ATTRIB",
+    "ATTDEF",
     "MTEXT",
+    "MINSERT",
     "DIMENSION",
 )
 
@@ -27,6 +31,10 @@ TYPE_ALIASES = {
     "DIM_LINEAR": "DIMENSION",
     "DIM_RADIUS": "DIMENSION",
     "DIM_DIAMETER": "DIMENSION",
+    "DIM_ORDINATE": "DIMENSION",
+    "DIM_ALIGNED": "DIMENSION",
+    "DIM_ANG3PT": "DIMENSION",
+    "DIM_ANG2LN": "DIMENSION",
 }
 
 
@@ -141,8 +149,28 @@ class Layout:
             return
 
         if dxftype == "LWPOLYLINE":
-            for handle, flags, points in raw.decode_lwpolyline_entities(decode_path):
+            for (
+                handle,
+                flags,
+                points,
+                bulges,
+                widths,
+                const_width,
+            ) in raw.decode_lwpolyline_entities(decode_path):
                 points3d = [(x, y, 0.0) for x, y in points]
+                bulges_list = list(bulges)
+                if len(bulges_list) < len(points3d):
+                    bulges_list.extend([0.0] * (len(points3d) - len(bulges_list)))
+                elif len(bulges_list) > len(points3d):
+                    bulges_list = bulges_list[: len(points3d)]
+
+                widths_list = list(widths)
+                if not widths_list and const_width is not None and points3d:
+                    widths_list = [(const_width, const_width)] * len(points3d)
+                if len(widths_list) < len(points3d):
+                    widths_list.extend([(0.0, 0.0)] * (len(points3d) - len(widths_list)))
+                elif len(widths_list) > len(points3d):
+                    widths_list = widths_list[: len(points3d)]
                 yield Entity(
                     dxftype="LWPOLYLINE",
                     handle=handle,
@@ -152,6 +180,9 @@ class Layout:
                             "points": points3d,
                             "flags": flags,
                             "closed": bool(flags & 1),
+                            "bulges": bulges_list,
+                            "widths": widths_list,
+                            "const_width": const_width,
                         },
                         entity_style_map,
                         layer_color_map,
@@ -238,6 +269,49 @@ class Layout:
                 )
             return
 
+        if dxftype == "SPLINE":
+            for (
+                handle,
+                flags_data,
+                tolerance_data,
+                knots,
+                control_points,
+                weights,
+                fit_points,
+            ) in raw.decode_spline_entities(decode_path):
+                scenario, degree, rational, closed, periodic = flags_data
+                fit_tolerance, knot_tolerance, ctrl_tolerance = tolerance_data
+                points = list(fit_points if len(fit_points) >= 2 else control_points)
+                if closed and len(points) > 1 and points[0] != points[-1]:
+                    points.append(points[0])
+                yield Entity(
+                    dxftype="SPLINE",
+                    handle=handle,
+                    dxf=_attach_entity_color(
+                        handle,
+                        {
+                            "scenario": scenario,
+                            "degree": degree,
+                            "rational": bool(rational),
+                            "closed": bool(closed),
+                            "periodic": bool(periodic),
+                            "fit_tolerance": fit_tolerance,
+                            "knot_tolerance": knot_tolerance,
+                            "ctrl_tolerance": ctrl_tolerance,
+                            "knots": list(knots),
+                            "control_points": list(control_points),
+                            "weights": list(weights),
+                            "fit_points": list(fit_points),
+                            "points": points,
+                        },
+                        entity_style_map,
+                        layer_color_map,
+                        layer_color_overrides,
+                        dxftype="SPLINE",
+                    ),
+                )
+            return
+
         if dxftype == "TEXT":
             for (
                 handle,
@@ -279,6 +353,104 @@ class Layout:
                 )
             return
 
+        if dxftype == "ATTRIB":
+            for (
+                handle,
+                text,
+                tag,
+                prompt,
+                insertion,
+                alignment,
+                extrusion,
+                metrics,
+                align_flags,
+                attrib_flags,
+                lock_position,
+                style_handle,
+            ) in raw.decode_attrib_entities(decode_path):
+                thickness, oblique_angle, height, rotation, width_factor = metrics
+                generation, horizontal_alignment, vertical_alignment = align_flags
+                yield Entity(
+                    dxftype="ATTRIB",
+                    handle=handle,
+                    dxf=_attach_entity_color(
+                        handle,
+                        {
+                            "text": text,
+                            "tag": tag,
+                            "prompt": prompt,
+                            "insert": insertion,
+                            "align_point": alignment,
+                            "extrusion": extrusion,
+                            "thickness": thickness,
+                            "oblique": math.degrees(oblique_angle),
+                            "height": height,
+                            "rotation": math.degrees(rotation),
+                            "width": width_factor,
+                            "text_generation_flag": generation,
+                            "halign": horizontal_alignment,
+                            "valign": vertical_alignment,
+                            "style_handle": style_handle,
+                            "attribute_flags": int(attrib_flags),
+                            "lock_position": bool(lock_position),
+                        },
+                        entity_style_map,
+                        layer_color_map,
+                        layer_color_overrides,
+                        dxftype="ATTRIB",
+                    ),
+                )
+            return
+
+        if dxftype == "ATTDEF":
+            for (
+                handle,
+                text,
+                tag,
+                prompt,
+                insertion,
+                alignment,
+                extrusion,
+                metrics,
+                align_flags,
+                attrib_flags,
+                lock_position,
+                style_handle,
+            ) in raw.decode_attdef_entities(decode_path):
+                thickness, oblique_angle, height, rotation, width_factor = metrics
+                generation, horizontal_alignment, vertical_alignment = align_flags
+                yield Entity(
+                    dxftype="ATTDEF",
+                    handle=handle,
+                    dxf=_attach_entity_color(
+                        handle,
+                        {
+                            "text": text,
+                            "tag": tag,
+                            "prompt": prompt,
+                            "insert": insertion,
+                            "align_point": alignment,
+                            "extrusion": extrusion,
+                            "thickness": thickness,
+                            "oblique": math.degrees(oblique_angle),
+                            "height": height,
+                            "rotation": math.degrees(rotation),
+                            "width": width_factor,
+                            "text_generation_flag": generation,
+                            "halign": horizontal_alignment,
+                            "valign": vertical_alignment,
+                            "style_handle": style_handle,
+                            "attribute_flags": int(attrib_flags),
+                            "lock_position": bool(lock_position),
+                        },
+                        entity_style_map,
+                        layer_color_map,
+                        layer_color_overrides,
+                        dxftype="ATTDEF",
+                    ),
+                )
+            return
+
         if dxftype == "MTEXT":
             for (
                 handle,
@@ -290,7 +462,15 @@ class Layout:
                 text_height,
                 attachment,
                 drawing_dir,
+                background_data,
             ) in raw.decode_mtext_entities(decode_path):
+                (
+                    background_flags,
+                    background_scale_factor,
+                    background_color_index,
+                    background_true_color,
+                    background_transparency,
+                ) = background_data
                 rotation = math.degrees(math.atan2(x_axis_dir[1], x_axis_dir[0]))
                 plain_text = _decode_mtext_plain_text(text)
                 yield Entity(
@@ -309,6 +489,11 @@ class Layout:
                             "char_height": text_height,
                             "attachment_point": attachment,
                             "drawing_direction": drawing_dir,
+                            "background_flags": background_flags,
+                            "background_scale_factor": background_scale_factor,
+                            "background_color_index": background_color_index,
+                            "background_true_color": background_true_color,
+                            "background_transparency": background_transparency,
                         },
                         entity_style_map,
                         layer_color_map,
@@ -318,14 +503,63 @@ class Layout:
                 )
             return
 
+        if dxftype == "MINSERT":
+            for (
+                handle,
+                px,
+                py,
+                pz,
+                sx,
+                sy,
+                sz,
+                rotation,
+                num_columns,
+                num_rows,
+                column_spacing,
+                row_spacing,
+            ) in raw.decode_minsert_entities(decode_path):
+                yield Entity(
+                    dxftype="MINSERT",
+                    handle=handle,
+                    dxf=_attach_entity_color(
+                        handle,
+                        {
+                            "insert": (px, py, pz),
+                            "xscale": sx,
+                            "yscale": sy,
+                            "zscale": sz,
+                            "rotation": math.degrees(rotation),
+                            "column_count": num_columns,
+                            "row_count": num_rows,
+                            "column_spacing": column_spacing,
+                            "row_spacing": row_spacing,
+                        },
+                        entity_style_map,
+                        layer_color_map,
+                        layer_color_overrides,
+                        dxftype="MINSERT",
+                    ),
+                )
+            return
+
         if dxftype == "DIMENSION":
             dimension_rows: list[tuple[str, tuple]] = []
-            for row in raw.decode_dim_linear_entities(decode_path):
-                dimension_rows.append(("LINEAR", row))
-            for row in raw.decode_dim_radius_entities(decode_path):
-                dimension_rows.append(("RADIUS", row))
-            for row in raw.decode_dim_diameter_entities(decode_path):
-                dimension_rows.append(("DIAMETER", row))
+
+            def _append_rows(dimtype: str, decode_fn) -> None:
+                try:
+                    rows = decode_fn(decode_path)
+                except Exception:
+                    rows = []
+                for row in rows:
+                    dimension_rows.append((dimtype, row))
+
+            _append_rows("LINEAR", raw.decode_dim_linear_entities)
+            _append_rows("ORDINATE", raw.decode_dim_ordinate_entities)
+            _append_rows("ALIGNED", raw.decode_dim_aligned_entities)
+            _append_rows("ANG3PT", raw.decode_dim_ang3pt_entities)
+            _append_rows("ANG2LN", raw.decode_dim_ang2ln_entities)
+            _append_rows("RADIUS", raw.decode_dim_radius_entities)
+            _append_rows("DIAMETER", raw.decode_dim_diameter_entities)
 
             dimension_rows.sort(key=lambda item: item[1][0])
             for dimtype, row in dimension_rows:
@@ -396,7 +630,7 @@ class Layout:
 
         raise ValueError(
             f"unsupported entity type: {dxftype}. "
-            "Supported types: LINE, LWPOLYLINE, ARC, CIRCLE, ELLIPSE, POINT, TEXT, MTEXT, DIMENSION"
+            "Supported types: LINE, LWPOLYLINE, ARC, CIRCLE, ELLIPSE, SPLINE, POINT, TEXT, ATTRIB, ATTDEF, MTEXT, MINSERT, DIMENSION"
         )
 
 

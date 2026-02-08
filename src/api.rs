@@ -28,6 +28,17 @@ type PointEntityRow = (u64, f64, f64, f64, f64);
 type ArcEntityRow = (u64, f64, f64, f64, f64, f64, f64);
 type CircleEntityRow = (u64, f64, f64, f64, f64);
 type EllipseEntityRow = (u64, Point3, Point3, Point3, f64, f64, f64);
+type SplineFlagsRow = (u32, u32, bool, bool, bool);
+type SplineToleranceRow = (Option<f64>, Option<f64>, Option<f64>);
+type SplineEntityRow = (
+    u64,
+    SplineFlagsRow,
+    SplineToleranceRow,
+    Vec<f64>,
+    Vec<Point3>,
+    Vec<f64>,
+    Vec<Point3>,
+);
 type TextMetricsRow = (f64, f64, f64, f64, f64);
 type TextAlignmentRow = (u16, u16, u16);
 type TextEntityRow = (
@@ -40,7 +51,33 @@ type TextEntityRow = (
     TextAlignmentRow,
     Option<u64>,
 );
-type MTextEntityRow = (u64, String, Point3, Point3, Point3, f64, f64, u16, u16);
+type AttribEntityRow = (
+    u64,
+    String,
+    Option<String>,
+    Option<String>,
+    Point3,
+    Option<Point3>,
+    Point3,
+    TextMetricsRow,
+    TextAlignmentRow,
+    u8,
+    bool,
+    Option<u64>,
+);
+type MTextBackgroundRow = (u32, Option<f64>, Option<u16>, Option<u32>, Option<u32>);
+type MTextEntityRow = (
+    u64,
+    String,
+    Point3,
+    Point3,
+    Point3,
+    f64,
+    f64,
+    u16,
+    u16,
+    MTextBackgroundRow,
+);
 type DimExtrusionScaleRow = (Point3, Point3);
 type DimAnglesRow = (f64, f64, f64, f64);
 type DimStyleRow = (u8, Option<f64>, Option<u16>, Option<u16>, Option<f64>, f64);
@@ -59,6 +96,7 @@ type DimEntityRow = (
     DimHandlesRow,
 );
 type InsertEntityRow = (u64, f64, f64, f64, f64, f64, f64, f64);
+type MInsertEntityRow = (u64, f64, f64, f64, f64, f64, f64, f64, u16, u16, f64, f64);
 type Polyline2dEntityRow = (u64, u16, u16, f64, f64, f64, f64);
 type Polyline2dInterpretedRow = (
     u64,
@@ -74,7 +112,7 @@ type Polyline2dInterpretedRow = (
     bool,
     bool,
 );
-type LwPolylineEntityRow = (u64, u16, Vec<Point2>);
+type LwPolylineEntityRow = (u64, u16, Vec<Point2>, Vec<f64>, Vec<Point2>, Option<f64>);
 type PolylineVerticesRow = (u64, u16, Vec<Point3>);
 type PolylineInterpolatedRow = (u64, u16, bool, Vec<Point3>);
 type Vertex2dEntityRow = (u64, u16, f64, f64, f64, f64, f64, f64, f64);
@@ -450,8 +488,95 @@ pub fn decode_entity_styles(path: &str, limit: Option<usize>) -> PyResult<Vec<En
                 entity.true_color,
                 layer_handle,
             ));
+        } else if matches_type_name(header.type_code, 0x24, "SPLINE", &dynamic_types) {
+            let entity = match decode_spline_for_version(
+                &mut reader,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+            ) {
+                Ok(entity) => entity,
+                Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
+                Err(err) => return Err(to_py_err(err)),
+            };
+            let layer_handle = recover_entity_layer_handle_r2010_plus(
+                &record,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+                entity.layer_handle,
+                &known_layer_handles,
+            );
+            let layer_handle = layer_handle_remap
+                .get(&layer_handle)
+                .copied()
+                .unwrap_or(layer_handle);
+            result.push((
+                entity.handle,
+                entity.color_index,
+                entity.true_color,
+                layer_handle,
+            ));
         } else if matches_type_name(header.type_code, 0x01, "TEXT", &dynamic_types) {
             let entity = match decode_text_for_version(
+                &mut reader,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+            ) {
+                Ok(entity) => entity,
+                Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
+                Err(err) => return Err(to_py_err(err)),
+            };
+            let layer_handle = recover_entity_layer_handle_r2010_plus(
+                &record,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+                entity.layer_handle,
+                &known_layer_handles,
+            );
+            let layer_handle = layer_handle_remap
+                .get(&layer_handle)
+                .copied()
+                .unwrap_or(layer_handle);
+            result.push((
+                entity.handle,
+                entity.color_index,
+                entity.true_color,
+                layer_handle,
+            ));
+        } else if matches_type_name(header.type_code, 0x02, "ATTRIB", &dynamic_types) {
+            let entity = match decode_attrib_for_version(
+                &mut reader,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+            ) {
+                Ok(entity) => entity,
+                Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
+                Err(err) => return Err(to_py_err(err)),
+            };
+            let layer_handle = recover_entity_layer_handle_r2010_plus(
+                &record,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+                entity.layer_handle,
+                &known_layer_handles,
+            );
+            let layer_handle = layer_handle_remap
+                .get(&layer_handle)
+                .copied()
+                .unwrap_or(layer_handle);
+            result.push((
+                entity.handle,
+                entity.color_index,
+                entity.true_color,
+                layer_handle,
+            ));
+        } else if matches_type_name(header.type_code, 0x03, "ATTDEF", &dynamic_types) {
+            let entity = match decode_attdef_for_version(
                 &mut reader,
                 decoder.version(),
                 &header,
@@ -538,6 +663,126 @@ pub fn decode_entity_styles(path: &str, limit: Option<usize>) -> PyResult<Vec<En
                 layer_handle,
             ));
         } else if matches_type_name(header.type_code, 0x15, "DIM_LINEAR", &dynamic_types) {
+            let entity = match decode_dim_linear_for_version(
+                &mut reader,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+            ) {
+                Ok(entity) => entity,
+                Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
+                Err(err) => return Err(to_py_err(err)),
+            };
+            let common = &entity.common;
+            let layer_handle = recover_entity_layer_handle_r2010_plus(
+                &record,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+                common.layer_handle,
+                &known_layer_handles,
+            );
+            let layer_handle = layer_handle_remap
+                .get(&layer_handle)
+                .copied()
+                .unwrap_or(layer_handle);
+            result.push((
+                common.handle,
+                common.color_index,
+                common.true_color,
+                layer_handle,
+            ));
+        } else if matches_type_name(header.type_code, 0x14, "DIM_ORDINATE", &dynamic_types) {
+            let entity = match decode_dim_linear_for_version(
+                &mut reader,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+            ) {
+                Ok(entity) => entity,
+                Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
+                Err(err) => return Err(to_py_err(err)),
+            };
+            let common = &entity.common;
+            let layer_handle = recover_entity_layer_handle_r2010_plus(
+                &record,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+                common.layer_handle,
+                &known_layer_handles,
+            );
+            let layer_handle = layer_handle_remap
+                .get(&layer_handle)
+                .copied()
+                .unwrap_or(layer_handle);
+            result.push((
+                common.handle,
+                common.color_index,
+                common.true_color,
+                layer_handle,
+            ));
+        } else if matches_type_name(header.type_code, 0x16, "DIM_ALIGNED", &dynamic_types) {
+            let entity = match decode_dim_linear_for_version(
+                &mut reader,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+            ) {
+                Ok(entity) => entity,
+                Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
+                Err(err) => return Err(to_py_err(err)),
+            };
+            let common = &entity.common;
+            let layer_handle = recover_entity_layer_handle_r2010_plus(
+                &record,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+                common.layer_handle,
+                &known_layer_handles,
+            );
+            let layer_handle = layer_handle_remap
+                .get(&layer_handle)
+                .copied()
+                .unwrap_or(layer_handle);
+            result.push((
+                common.handle,
+                common.color_index,
+                common.true_color,
+                layer_handle,
+            ));
+        } else if matches_type_name(header.type_code, 0x17, "DIM_ANG3PT", &dynamic_types) {
+            let entity = match decode_dim_linear_for_version(
+                &mut reader,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+            ) {
+                Ok(entity) => entity,
+                Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
+                Err(err) => return Err(to_py_err(err)),
+            };
+            let common = &entity.common;
+            let layer_handle = recover_entity_layer_handle_r2010_plus(
+                &record,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+                common.layer_handle,
+                &known_layer_handles,
+            );
+            let layer_handle = layer_handle_remap
+                .get(&layer_handle)
+                .copied()
+                .unwrap_or(layer_handle);
+            result.push((
+                common.handle,
+                common.color_index,
+                common.true_color,
+                layer_handle,
+            ));
+        } else if matches_type_name(header.type_code, 0x18, "DIM_ANG2LN", &dynamic_types) {
             let entity = match decode_dim_linear_for_version(
                 &mut reader,
                 decoder.version(),
@@ -923,6 +1168,67 @@ pub fn decode_ellipse_entities(
 }
 
 #[pyfunction(signature = (path, limit=None))]
+pub fn decode_spline_entities(path: &str, limit: Option<usize>) -> PyResult<Vec<SplineEntityRow>> {
+    let bytes = file_open::read_file(path).map_err(to_py_err)?;
+    let decoder = build_decoder(&bytes).map_err(to_py_err)?;
+    let best_effort = is_best_effort_compat_version(&decoder);
+    let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
+    let index = decoder.build_object_index().map_err(to_py_err)?;
+    let mut result = Vec::new();
+    for obj in index.objects.iter() {
+        let Some((record, header)) = parse_record_and_header(&decoder, obj.offset, best_effort)?
+        else {
+            continue;
+        };
+        if !matches_type_name(header.type_code, 0x24, "SPLINE", &dynamic_types) {
+            continue;
+        }
+        let mut reader = record.bit_reader();
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
+            if best_effort {
+                continue;
+            }
+            return Err(to_py_err(err));
+        }
+        let entity = match decode_spline_for_version(
+            &mut reader,
+            decoder.version(),
+            &header,
+            obj.handle.0,
+        ) {
+            Ok(entity) => entity,
+            Err(err) if best_effort => continue,
+            Err(err) => return Err(to_py_err(err)),
+        };
+        result.push((
+            entity.handle,
+            (
+                entity.scenario,
+                entity.degree,
+                entity.rational,
+                entity.closed,
+                entity.periodic,
+            ),
+            (
+                entity.fit_tolerance,
+                entity.knot_tolerance,
+                entity.ctrl_tolerance,
+            ),
+            entity.knots,
+            entity.control_points,
+            entity.weights,
+            entity.fit_points,
+        ));
+        if let Some(limit) = limit {
+            if result.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(result)
+}
+
+#[pyfunction(signature = (path, limit=None))]
 pub fn decode_text_entities(path: &str, limit: Option<usize>) -> PyResult<Vec<TextEntityRow>> {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
@@ -981,6 +1287,106 @@ pub fn decode_text_entities(path: &str, limit: Option<usize>) -> PyResult<Vec<Te
 }
 
 #[pyfunction(signature = (path, limit=None))]
+pub fn decode_attrib_entities(path: &str, limit: Option<usize>) -> PyResult<Vec<AttribEntityRow>> {
+    decode_attrib_like_entities_by_type(
+        path,
+        limit,
+        0x02,
+        "ATTRIB",
+        |reader, version, header, object_handle| {
+            decode_attrib_for_version(reader, version, header, object_handle)
+        },
+    )
+}
+
+#[pyfunction(signature = (path, limit=None))]
+pub fn decode_attdef_entities(path: &str, limit: Option<usize>) -> PyResult<Vec<AttribEntityRow>> {
+    decode_attrib_like_entities_by_type(
+        path,
+        limit,
+        0x03,
+        "ATTDEF",
+        |reader, version, header, object_handle| {
+            decode_attdef_for_version(reader, version, header, object_handle)
+        },
+    )
+}
+
+fn decode_attrib_like_entities_by_type<F>(
+    path: &str,
+    limit: Option<usize>,
+    type_code: u16,
+    type_name: &str,
+    mut decode_entity: F,
+) -> PyResult<Vec<AttribEntityRow>>
+where
+    F: FnMut(
+        &mut BitReader<'_>,
+        &version::DwgVersion,
+        &ApiObjectHeader,
+        u64,
+    ) -> crate::core::result::Result<entities::AttribEntity>,
+{
+    let bytes = file_open::read_file(path).map_err(to_py_err)?;
+    let decoder = build_decoder(&bytes).map_err(to_py_err)?;
+    let best_effort = is_best_effort_compat_version(&decoder);
+    let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
+    let index = decoder.build_object_index().map_err(to_py_err)?;
+    let mut result = Vec::new();
+    for obj in index.objects.iter() {
+        let Some((record, header)) = parse_record_and_header(&decoder, obj.offset, best_effort)?
+        else {
+            continue;
+        };
+        if !matches_type_name(header.type_code, type_code, type_name, &dynamic_types) {
+            continue;
+        }
+        let mut reader = record.bit_reader();
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
+            if best_effort {
+                continue;
+            }
+            return Err(to_py_err(err));
+        }
+        let entity = match decode_entity(&mut reader, decoder.version(), &header, obj.handle.0) {
+            Ok(entity) => entity,
+            Err(err) if best_effort => continue,
+            Err(err) => return Err(to_py_err(err)),
+        };
+        result.push((
+            entity.handle,
+            entity.text,
+            entity.tag,
+            entity.prompt,
+            entity.insertion,
+            entity.alignment,
+            entity.extrusion,
+            (
+                entity.thickness,
+                entity.oblique_angle,
+                entity.height,
+                entity.rotation,
+                entity.width_factor,
+            ),
+            (
+                entity.generation,
+                entity.horizontal_alignment,
+                entity.vertical_alignment,
+            ),
+            entity.flags,
+            entity.lock_position,
+            entity.style_handle,
+        ));
+        if let Some(limit) = limit {
+            if result.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(result)
+}
+
+#[pyfunction(signature = (path, limit=None))]
 pub fn decode_mtext_entities(path: &str, limit: Option<usize>) -> PyResult<Vec<MTextEntityRow>> {
     let bytes = file_open::read_file(path).map_err(to_py_err)?;
     let decoder = build_decoder(&bytes).map_err(to_py_err)?;
@@ -1019,6 +1425,13 @@ pub fn decode_mtext_entities(path: &str, limit: Option<usize>) -> PyResult<Vec<M
             entity.text_height,
             entity.attachment,
             entity.drawing_dir,
+            (
+                entity.background_flags,
+                entity.background_scale_factor,
+                entity.background_color_index,
+                entity.background_true_color,
+                entity.background_transparency,
+            ),
         ));
         if let Some(limit) = limit {
             if result.len() >= limit {
@@ -1044,6 +1457,23 @@ pub fn decode_dim_linear_entities(path: &str, limit: Option<usize>) -> PyResult<
 }
 
 #[pyfunction(signature = (path, limit=None))]
+pub fn decode_dim_ordinate_entities(
+    path: &str,
+    limit: Option<usize>,
+) -> PyResult<Vec<DimEntityRow>> {
+    decode_dim_entities_by_type(
+        path,
+        limit,
+        0x14,
+        "DIM_ORDINATE",
+        |reader, version, header, object_handle| {
+            let entity = decode_dim_linear_for_version(reader, version, header, object_handle)?;
+            Ok(dim_entity_row_from_linear_like(&entity))
+        },
+    )
+}
+
+#[pyfunction(signature = (path, limit=None))]
 pub fn decode_dim_diameter_entities(
     path: &str,
     limit: Option<usize>,
@@ -1055,6 +1485,51 @@ pub fn decode_dim_diameter_entities(
         "DIM_DIAMETER",
         |reader, version, header, object_handle| {
             let entity = decode_dim_diameter_for_version(reader, version, header, object_handle)?;
+            Ok(dim_entity_row_from_linear_like(&entity))
+        },
+    )
+}
+
+#[pyfunction(signature = (path, limit=None))]
+pub fn decode_dim_aligned_entities(
+    path: &str,
+    limit: Option<usize>,
+) -> PyResult<Vec<DimEntityRow>> {
+    decode_dim_entities_by_type(
+        path,
+        limit,
+        0x16,
+        "DIM_ALIGNED",
+        |reader, version, header, object_handle| {
+            let entity = decode_dim_linear_for_version(reader, version, header, object_handle)?;
+            Ok(dim_entity_row_from_linear_like(&entity))
+        },
+    )
+}
+
+#[pyfunction(signature = (path, limit=None))]
+pub fn decode_dim_ang3pt_entities(path: &str, limit: Option<usize>) -> PyResult<Vec<DimEntityRow>> {
+    decode_dim_entities_by_type(
+        path,
+        limit,
+        0x17,
+        "DIM_ANG3PT",
+        |reader, version, header, object_handle| {
+            let entity = decode_dim_linear_for_version(reader, version, header, object_handle)?;
+            Ok(dim_entity_row_from_linear_like(&entity))
+        },
+    )
+}
+
+#[pyfunction(signature = (path, limit=None))]
+pub fn decode_dim_ang2ln_entities(path: &str, limit: Option<usize>) -> PyResult<Vec<DimEntityRow>> {
+    decode_dim_entities_by_type(
+        path,
+        limit,
+        0x18,
+        "DIM_ANG2LN",
+        |reader, version, header, object_handle| {
+            let entity = decode_dim_linear_for_version(reader, version, header, object_handle)?;
             Ok(dim_entity_row_from_linear_like(&entity))
         },
     )
@@ -1197,6 +1672,60 @@ pub fn decode_insert_entities(path: &str, limit: Option<usize>) -> PyResult<Vec<
 }
 
 #[pyfunction(signature = (path, limit=None))]
+pub fn decode_minsert_entities(
+    path: &str,
+    limit: Option<usize>,
+) -> PyResult<Vec<MInsertEntityRow>> {
+    let bytes = file_open::read_file(path).map_err(to_py_err)?;
+    let decoder = build_decoder(&bytes).map_err(to_py_err)?;
+    let best_effort = is_best_effort_compat_version(&decoder);
+    let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
+    let index = decoder.build_object_index().map_err(to_py_err)?;
+    let mut result = Vec::new();
+    for obj in index.objects.iter() {
+        let Some((record, header)) = parse_record_and_header(&decoder, obj.offset, best_effort)?
+        else {
+            continue;
+        };
+        if !matches_type_name(header.type_code, 0x08, "MINSERT", &dynamic_types) {
+            continue;
+        }
+        let mut reader = record.bit_reader();
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
+            if best_effort {
+                continue;
+            }
+            return Err(to_py_err(err));
+        }
+        let entity = match entities::decode_minsert(&mut reader) {
+            Ok(entity) => entity,
+            Err(err) if best_effort => continue,
+            Err(err) => return Err(to_py_err(err)),
+        };
+        result.push((
+            entity.handle,
+            entity.position.0,
+            entity.position.1,
+            entity.position.2,
+            entity.scale.0,
+            entity.scale.1,
+            entity.scale.2,
+            entity.rotation,
+            entity.num_columns,
+            entity.num_rows,
+            entity.column_spacing,
+            entity.row_spacing,
+        ));
+        if let Some(limit) = limit {
+            if result.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(result)
+}
+
+#[pyfunction(signature = (path, limit=None))]
 pub fn decode_polyline_2d_entities(
     path: &str,
     limit: Option<usize>,
@@ -1317,7 +1846,14 @@ pub fn decode_lwpolyline_entities(
             Err(err) if best_effort => continue,
             Err(err) => return Err(to_py_err(err)),
         };
-        result.push((entity.handle, entity.flags, entity.vertices));
+        result.push((
+            entity.handle,
+            entity.flags,
+            entity.vertices,
+            entity.bulges,
+            entity.widths,
+            entity.const_width,
+        ));
         if let Some(limit) = limit {
             if result.len() >= limit {
                 break;
@@ -1656,12 +2192,20 @@ pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(decode_arc_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_circle_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_ellipse_entities, module)?)?;
+    module.add_function(wrap_pyfunction!(decode_spline_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_text_entities, module)?)?;
+    module.add_function(wrap_pyfunction!(decode_attrib_entities, module)?)?;
+    module.add_function(wrap_pyfunction!(decode_attdef_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_mtext_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_dim_linear_entities, module)?)?;
+    module.add_function(wrap_pyfunction!(decode_dim_ordinate_entities, module)?)?;
+    module.add_function(wrap_pyfunction!(decode_dim_aligned_entities, module)?)?;
+    module.add_function(wrap_pyfunction!(decode_dim_ang3pt_entities, module)?)?;
+    module.add_function(wrap_pyfunction!(decode_dim_ang2ln_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_dim_diameter_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_dim_radius_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_insert_entities, module)?)?;
+    module.add_function(wrap_pyfunction!(decode_minsert_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_polyline_2d_entities, module)?)?;
     module.add_function(wrap_pyfunction!(
         decode_polyline_2d_entities_interpreted,
@@ -1788,6 +2332,26 @@ fn decode_ellipse_for_version(
     }
 }
 
+fn decode_spline_for_version(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+    header: &ApiObjectHeader,
+    object_handle: u64,
+) -> crate::core::result::Result<entities::SplineEntity> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_spline_r2010(reader, object_data_end_bit, object_handle)
+        }
+        version::DwgVersion::R2013 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_spline_r2013(reader, object_data_end_bit, object_handle)
+        }
+        version::DwgVersion::R2007 => entities::decode_spline_r2007(reader),
+        _ => entities::decode_spline(reader),
+    }
+}
+
 fn decode_text_for_version(
     reader: &mut BitReader<'_>,
     version: &version::DwgVersion,
@@ -1808,6 +2372,46 @@ fn decode_text_for_version(
     }
 }
 
+fn decode_attrib_for_version(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+    header: &ApiObjectHeader,
+    object_handle: u64,
+) -> crate::core::result::Result<entities::AttribEntity> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_attrib_r2010(reader, object_data_end_bit, object_handle)
+        }
+        version::DwgVersion::R2013 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_attrib_r2013(reader, object_data_end_bit, object_handle)
+        }
+        version::DwgVersion::R2007 => entities::decode_attrib_r2007(reader),
+        _ => entities::decode_attrib(reader),
+    }
+}
+
+fn decode_attdef_for_version(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+    header: &ApiObjectHeader,
+    object_handle: u64,
+) -> crate::core::result::Result<entities::AttribEntity> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_attdef_r2010(reader, object_data_end_bit, object_handle)
+        }
+        version::DwgVersion::R2013 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_attdef_r2013(reader, object_data_end_bit, object_handle)
+        }
+        version::DwgVersion::R2007 => entities::decode_attdef_r2007(reader),
+        _ => entities::decode_attdef(reader),
+    }
+}
+
 fn decode_mtext_for_version(
     reader: &mut BitReader<'_>,
     version: &version::DwgVersion,
@@ -1824,6 +2428,7 @@ fn decode_mtext_for_version(
             entities::decode_mtext_r2013(reader, object_data_end_bit, object_handle)
         }
         version::DwgVersion::R2007 => entities::decode_mtext_r2007(reader),
+        version::DwgVersion::R2004 => entities::decode_mtext_r2004(reader),
         _ => entities::decode_mtext(reader),
     }
 }

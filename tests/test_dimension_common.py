@@ -158,3 +158,65 @@ def test_dimension_value_reads_common_mapping() -> None:
     dxf = {"common": {"actual_measurement": 7.25}}
     assert render_module._dimension_value(dxf, "actual_measurement") == 7.25
     assert render_module._resolve_dimension_text(dxf, "<>") == "7.25"
+
+
+def test_dimension_entity_merges_extended_variants(monkeypatch) -> None:
+    monkeypatch.setattr(document_module, "_entity_style_map", lambda _path: {})
+    monkeypatch.setattr(document_module, "_layer_color_map", lambda _path: {})
+    base_row = (
+        "<>",
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (2.0, 0.0, 0.0),
+        (1.0, 0.5, 0.0),
+        None,
+        ((0.0, 0.0, 1.0), (1.0, 1.0, 1.0)),
+        (0.0, 0.0, 0.0, 0.0),
+        (0, 2.0, None, None, None, 0.0),
+        (None, None),
+    )
+    monkeypatch.setattr(
+        document_module.raw,
+        "decode_dim_linear_entities",
+        lambda _path: [(110, *base_row)],
+    )
+    monkeypatch.setattr(
+        document_module.raw,
+        "decode_dim_ordinate_entities",
+        lambda _path: [(90, *base_row)],
+    )
+    monkeypatch.setattr(
+        document_module.raw,
+        "decode_dim_aligned_entities",
+        lambda _path: [(100, *base_row)],
+    )
+    monkeypatch.setattr(
+        document_module.raw,
+        "decode_dim_ang3pt_entities",
+        lambda _path: [(80, *base_row)],
+    )
+    monkeypatch.setattr(
+        document_module.raw,
+        "decode_dim_ang2ln_entities",
+        lambda _path: [(70, *base_row)],
+    )
+    monkeypatch.setattr(document_module.raw, "decode_dim_radius_entities", lambda _path: [])
+    monkeypatch.setattr(document_module.raw, "decode_dim_diameter_entities", lambda _path: [])
+
+    doc = Document(
+        path="dummy.dwg",
+        version="AC1018",
+        decode_path="dummy.dwg",
+        decode_version="AC1018",
+    )
+    layout = Layout(doc=doc, name="MODELSPACE")
+    entities = list(layout.query("DIMENSION"))
+
+    assert [e.handle for e in entities] == [70, 80, 90, 100, 110]
+    assert [e.dxf["dimtype"] for e in entities] == [
+        "ANG2LN",
+        "ANG3PT",
+        "ORDINATE",
+        "ALIGNED",
+        "LINEAR",
+    ]

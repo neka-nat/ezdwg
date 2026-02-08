@@ -164,8 +164,15 @@ def test_r2007plus_decode_payload_shape(case: dict[str, str]) -> None:
 
     lw_rows = raw.decode_lwpolyline_entities(str(SAMPLES / f'{case["polyline"]}.dwg'))
     assert len(lw_rows) == 1
-    handle, _flags, points = lw_rows[0]
+    handle, _flags, points, bulges, widths, const_width = lw_rows[0]
     assert handle > 0
     for x, y in points:
         assert math.isfinite(x)
         assert math.isfinite(y)
+    for bulge in bulges:
+        assert math.isfinite(bulge)
+    for start_width, end_width in widths:
+        assert math.isfinite(start_width)
+        assert math.isfinite(end_width)
+    if const_width is not None:
+        assert math.isfinite(const_width)

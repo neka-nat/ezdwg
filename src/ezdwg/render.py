@@ -59,7 +59,15 @@ def plot_layout(
         elif dxftype == "POINT":
             _draw_point(ax, entity.dxf["location"], line_width, color=color)
         elif dxftype == "LWPOLYLINE":
-            _draw_polyline(ax, entity.dxf.get("points", []), line_width, color=color)
+            _draw_polyline(
+                ax,
+                entity.dxf.get("points", []),
+                line_width,
+                color=color,
+                bulges=entity.dxf.get("bulges"),
+                closed=bool(entity.dxf.get("closed", False)),
+                arc_segments=arc_segments,
+            )
         elif dxftype == "ARC":
             _draw_arc(
                 ax,
@@ -92,7 +100,25 @@ def plot_layout(
                 line_width,
                 color=color,
             )
+        elif dxftype == "SPLINE":
+            _draw_polyline(
+                ax,
+                entity.dxf.get("points", []),
+                line_width,
+                color=color,
+                closed=bool(entity.dxf.get("closed", False)),
+                arc_segments=arc_segments,
+            )
         elif dxftype == "TEXT":
+            _draw_text(
+                ax,
+                entity.dxf.get("insert", (0.0, 0.0, 0.0)),
+                entity.dxf.get("text", ""),
+                entity.dxf.get("height", 1.0),
+                entity.dxf.get("rotation", 0.0),
+                color=color,
+            )
+        elif dxftype == "ATTRIB" or dxftype == "ATTDEF":
             _draw_text(
                 ax,
                 entity.dxf.get("insert", (0.0, 0.0, 0.0)),
@@ -109,7 +135,10 @@ def plot_layout(
                 entity.dxf.get("char_height", 1.0),
                 entity.dxf.get("rotation", 0.0),
                 color=color,
+                background=_resolve_mtext_background_bbox(ax, entity.dxf),
             )
+        elif dxftype == "MINSERT":
+            _draw_point(ax, entity.dxf.get("insert", (0.0, 0.0, 0.0)), line_width, color=color)
         elif dxftype == "DIMENSION":
             dim_color = color if dimension_color is None else dimension_color
             _draw_dimension(ax, entity.dxf, line_width, color=dim_color)
@@ -236,12 +265,98 @@ def _draw_point(ax, location, line_width: float, color=None):
     ax.plot([location[0]], [location[1]], marker="o", markersize=size, linewidth=0, color=color)
 
 
-def _draw_polyline(ax, points, line_width: float, color=None):
+def _draw_polyline(
+    ax,
+    points,
+    line_width: float,
+    color=None,
+    bulges=None,
+    closed: bool = False,
+    arc_segments: int = 64,
+):
     if not points:
         return
-    xs = [pt[0] for pt in points]
-    ys = [pt[1] for pt in points]
+    path = _build_lwpolyline_path(points, bulges=bulges, closed=closed, arc_segments=arc_segments)
+    if not path:
+        return
+    xs = [pt[0] for pt in path]
+    ys = [pt[1] for pt in path]
     ax.plot(xs, ys, linewidth=line_width, color=color)
+
+
+def _build_lwpolyline_path(points, bulges=None, closed: bool = False, arc_segments: int = 64):
+    points2d = []
+    for point in points:
+        xy = _to_xy(point)
+        if xy is not None:
+            points2d.append(xy)
+    count = len(points2d)
+    if count == 0:
+        return []
+    if count == 1:
+        return [points2d[0]]
+
+    bulge_values = [0.0] * count
+    if bulges:
+        for idx, value in enumerate(list(bulges)[:count]):
+            try:
+                bulge_values[idx] = float(value)
+            except Exception:
+                bulge_values[idx] = 0.0
+
+    seg_count = count if closed else (count - 1)
+    path: list[tuple[float, float]] = []
+    for idx in range(seg_count):
+        start = points2d[idx]
+        end = points2d[(idx + 1) % count]
+        bulge = bulge_values[idx]
+        segment = _segment_path_with_bulge(start, end, bulge, arc_segments=arc_segments)
+        if not segment:
+            continue
+        if path:
+            path.extend(segment[1:])
+        else:
+            path.extend(segment)
+    return path
+
+
+def _segment_path_with_bulge(start, end, bulge: float, arc_segments: int):
+    import math
+
+    if abs(bulge) <= 1.0e-12:
+        return [start, end]
+
+    dx = end[0] - start[0]
+    dy = end[1] - start[1]
+    chord = math.hypot(dx, dy)
+    if chord <= 1.0e-12:
+        return [start, end]
+
+    theta = 4.0 * math.atan(bulge)
+    if abs(theta) <= 1.0e-12:
+        return [start, end]
+
+    normal = (-dy / chord, dx / chord)
+    center_offset = chord * (1.0 - bulge * bulge) / (4.0 * bulge)
+    mid = ((start[0] + end[0]) * 0.5, (start[1] + end[1]) * 0.5)
+    center = (
+        mid[0] + normal[0] * center_offset,
+        mid[1] + normal[1] * center_offset,
+    )
+    radius = math.hypot(start[0] - center[0], start[1] - center[1])
+    if radius <= 1.0e-12:
+        return [start, end]
+
+    start_angle = math.atan2(start[1] - center[1], start[0] - center[0])
+    segments = max(2, int(math.ceil(abs(theta) * max(8, arc_segments) / (2.0 * math.pi))))
+    out = []
+    for i in range(segments + 1):
+        t = i / segments
+        angle = start_angle + theta * t
+        out.append((center[0] + radius * math.cos(angle), center[1] + radius * math.sin(angle)))
+    out[0] = start
+    out[-1] = end
+    return out
 
 
 def _draw_arc(
@@ -315,12 +430,77 @@ def _draw_ellipse(
     ax.plot(xs, ys, linewidth=line_width, color=color)
 
 
-def _draw_text(ax, insert, text: str, height: float, rotation_deg: float, color=None):
+def _draw_text(
+    ax,
+    insert,
+    text: str,
+    height: float,
+    rotation_deg: float,
+    color=None,
+    background=None,
+):
     if not text:
         return
     text = text.replace("\\P", "\n")
     size = max(6.0, abs(height) * 3.0)
-    ax.text(insert[0], insert[1], text, fontsize=size, rotation=rotation_deg, color=color)
+    kwargs = {}
+    if background is not None:
+        kwargs["bbox"] = background
+    ax.text(
+        insert[0],
+        insert[1],
+        text,
+        fontsize=size,
+        rotation=rotation_deg,
+        color=color,
+        **kwargs,
+    )
+
+
+def _resolve_mtext_background_bbox(ax, dxf):
+    flags = _as_int(dxf.get("background_flags"), default=0)
+    if (flags & 0x01) == 0 and (flags & 0x02) == 0 and (flags & 0x10) == 0:
+        return None
+
+    bg_true_color = dxf.get("background_true_color")
+    bg_color = _true_color_to_hex(bg_true_color)
+    if bg_color is None:
+        bg_index = _as_int(dxf.get("background_color_index"), default=0)
+        if bg_index not in (0, 256, 257):
+            bg_color = _aci_to_hex(bg_index)
+    if bg_color is None and (flags & 0x02) != 0:
+        try:
+            bg_color = ax.get_facecolor()
+        except Exception:
+            bg_color = None
+    if bg_color is None:
+        bg_color = "#ffffff"
+
+    alpha = _resolve_mtext_background_alpha(dxf.get("background_transparency"))
+    style = {
+        "facecolor": bg_color,
+        "edgecolor": "none",
+        "boxstyle": "square,pad=0.15",
+    }
+    if alpha is not None:
+        style["alpha"] = alpha
+    return style
+
+
+def _resolve_mtext_background_alpha(value):
+    if value is None:
+        return None
+    try:
+        raw = int(value)
+    except Exception:
+        return None
+
+    alpha_code = raw & 0xFF
+    if alpha_code <= 0:
+        return 1.0
+    if alpha_code >= 255:
+        return 0.0
+    return max(0.0, min(1.0, 1.0 - (alpha_code / 255.0)))
 
 
 def _draw_dimension(ax, dxf, line_width: float, color=None):
@@ -626,6 +806,26 @@ def _quantile(values, q: float):
     if i >= len(data) - 1:
         return data[-1]
     return data[i] * (1.0 - frac) + data[i + 1] * frac
+
+
+def _to_xy(value):
+    import math
+
+    try:
+        x = float(value[0])
+        y = float(value[1])
+    except Exception:
+        return None
+    if not math.isfinite(x) or not math.isfinite(y):
+        return None
+    return (x, y)
+
+
+def _as_int(value, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
 
 
 def _safe_point(value):

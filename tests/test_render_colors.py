@@ -24,6 +24,11 @@ class _FakeAx:
         return None
 
 
+class _FakeMTextAx(_FakeAx):
+    def get_facecolor(self):
+        return (0.9, 0.9, 0.9, 1.0)
+
+
 class _FakeLayout:
     def __init__(self, entities):
         self._entities = list(entities)
@@ -117,3 +122,134 @@ def test_plot_layout_dimension_uses_entity_color_when_requested(monkeypatch) -> 
     )
 
     assert captured == ["#ff0000"]
+
+
+def test_build_lwpolyline_path_expands_bulge_arc() -> None:
+    path = render_module._build_lwpolyline_path(
+        [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0)],
+        bulges=[1.0, 0.0],
+        closed=False,
+        arc_segments=32,
+    )
+    assert len(path) > 2
+    assert path[0] == (0.0, 0.0)
+    assert path[-1] == (1.0, 0.0)
+    assert max(abs(y) for _x, y in path) > 0.45
+
+
+def test_resolve_mtext_background_bbox_uses_true_color() -> None:
+    bbox = render_module._resolve_mtext_background_bbox(
+        _FakeMTextAx(),
+        {
+            "background_flags": 1,
+            "background_true_color": 0x0000FF00,
+            "background_transparency": 128,
+        },
+    )
+    assert bbox is not None
+    assert bbox["facecolor"] == "#00ff00"
+    assert 0.45 <= bbox["alpha"] <= 0.55
+
+
+def test_plot_layout_mtext_passes_background(monkeypatch) -> None:
+    captured: list[dict | None] = []
+    monkeypatch.setattr(render_module, "_require_matplotlib", lambda: object())
+    monkeypatch.setattr(
+        render_module,
+        "_draw_text",
+        lambda _ax, _insert, _text, _height, _rotation, color=None, background=None: captured.append(
+            background
+        ),
+    )
+
+    layout = _FakeLayout(
+        [
+            SimpleNamespace(
+                dxftype="MTEXT",
+                dxf={
+                    "insert": (1.0, 2.0, 0.0),
+                    "text": "abc",
+                    "char_height": 1.0,
+                    "rotation": 0.0,
+                    "background_flags": 1,
+                    "background_true_color": 0x00FF0000,
+                },
+            )
+        ]
+    )
+    ax = _FakeMTextAx()
+
+    render_module.plot_layout(layout, ax=ax, show=False, auto_fit=False, equal=False)
+
+    assert len(captured) == 1
+    assert captured[0] is not None
+    assert captured[0]["facecolor"] == "#ff0000"
+
+
+def test_plot_layout_attrib_uses_text_drawer(monkeypatch) -> None:
+    captured: list[str] = []
+    monkeypatch.setattr(render_module, "_require_matplotlib", lambda: object())
+    monkeypatch.setattr(
+        render_module,
+        "_draw_text",
+        lambda _ax, _insert, text, _height, _rotation, color=None, background=None: captured.append(
+            text
+        ),
+    )
+
+    layout = _FakeLayout(
+        [
+            SimpleNamespace(
+                dxftype="ATTRIB",
+                dxf={"insert": (1.0, 2.0, 0.0), "text": "TAGVAL", "height": 2.0, "rotation": 0.0},
+            )
+        ]
+    )
+    ax = _FakeAx()
+
+    render_module.plot_layout(layout, ax=ax, show=False, auto_fit=False, equal=False)
+
+    assert captured == ["TAGVAL"]
+
+
+def test_plot_layout_minsert_uses_point_drawer(monkeypatch) -> None:
+    captured: list[tuple[float, float, float]] = []
+    monkeypatch.setattr(render_module, "_require_matplotlib", lambda: object())
+    monkeypatch.setattr(
+        render_module,
+        "_draw_point",
+        lambda _ax, location, _line_width, color=None: captured.append(location),
+    )
+
+    layout = _FakeLayout([SimpleNamespace(dxftype="MINSERT", dxf={"insert": (3.0, 4.0, 0.0)})])
+    ax = _FakeAx()
+
+    render_module.plot_layout(layout, ax=ax, show=False, auto_fit=False, equal=False)
+
+    assert captured == [(3.0, 4.0, 0.0)]
+
+
+def test_plot_layout_spline_uses_polyline_drawer(monkeypatch) -> None:
+    captured: list[tuple[list, bool]] = []
+    monkeypatch.setattr(render_module, "_require_matplotlib", lambda: object())
+    monkeypatch.setattr(
+        render_module,
+        "_draw_polyline",
+        lambda _ax, points, _line_width, color=None, bulges=None, closed=False, arc_segments=64: captured.append(
+            (list(points), closed)
+        ),
+    )
+
+    layout = _FakeLayout(
+        [
+            SimpleNamespace(
+                dxftype="SPLINE",
+                dxf={"points": [(0.0, 0.0, 0.0), (1.0, 1.0, 0.0)], "closed": True},
+            )
+        ]
+    )
+    ax = _FakeAx()
+
+    render_module.plot_layout(layout, ax=ax, show=False, auto_fit=False, equal=False)
+
+    assert captured == [([(0.0, 0.0, 0.0), (1.0, 1.0, 0.0)], True)]
