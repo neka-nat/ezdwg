@@ -6,7 +6,9 @@ pub mod dim_diameter;
 pub mod dim_linear;
 pub mod dim_radius;
 pub mod ellipse;
+pub mod hatch;
 pub mod insert;
+pub mod leader;
 pub mod line;
 pub mod lwpolyline;
 pub mod minsert;
@@ -41,7 +43,14 @@ pub use dim_radius::{
 pub use ellipse::{
     decode_ellipse, decode_ellipse_r2007, decode_ellipse_r2010, decode_ellipse_r2013, EllipseEntity,
 };
+pub use hatch::{
+    decode_hatch, decode_hatch_r2004, decode_hatch_r2007, decode_hatch_r2010, decode_hatch_r2013,
+    HatchEntity, HatchPath,
+};
 pub use insert::{decode_insert, InsertEntity};
+pub use leader::{
+    decode_leader, decode_leader_r2007, decode_leader_r2010, decode_leader_r2013, LeaderEntity,
+};
 pub use line::{decode_line, decode_line_r2007, decode_line_r2010, decode_line_r2013, LineEntity};
 pub use lwpolyline::{
     decode_lwpolyline, decode_lwpolyline_r2007, decode_lwpolyline_r2010, decode_lwpolyline_r2013,

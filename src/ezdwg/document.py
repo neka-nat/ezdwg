@@ -23,6 +23,8 @@ SUPPORTED_ENTITY_TYPES = (
     "ATTRIB",
     "ATTDEF",
     "MTEXT",
+    "LEADER",
+    "HATCH",
     "MINSERT",
     "DIMENSION",
 )
@@ -503,6 +505,71 @@ class Layout:
                 )
             return
 
+        if dxftype == "LEADER":
+            for handle, annotation_type, path_type, points in raw.decode_leader_entities(
+                decode_path
+            ):
+                points_list = list(points)
+                yield Entity(
+                    dxftype="LEADER",
+                    handle=handle,
+                    dxf=_attach_entity_color(
+                        handle,
+                        {
+                            "annotation_type": int(annotation_type),
+                            "path_type": int(path_type),
+                            "points": points_list,
+                        },
+                        entity_style_map,
+                        layer_color_map,
+                        layer_color_overrides,
+                        dxftype="LEADER",
+                    ),
+                )
+            return
+
+        if dxftype == "HATCH":
+            for (
+                handle,
+                name,
+                solid_fill,
+                associative,
+                elevation,
+                extrusion,
+                path_rows,
+            ) in raw.decode_hatch_entities(decode_path):
+                paths = []
+                for closed, points in path_rows:
+                    path_points = [(x, y, elevation) for x, y in points]
+                    if bool(closed) and len(path_points) > 1 and path_points[0] != path_points[-1]:
+                        path_points.append(path_points[0])
+                    paths.append(
+                        {
+                            "closed": bool(closed),
+                            "points": path_points,
+                        }
+                    )
+                yield Entity(
+                    dxftype="HATCH",
+                    handle=handle,
+                    dxf=_attach_entity_color(
+                        handle,
+                        {
+                            "pattern_name": name,
+                            "solid_fill": bool(solid_fill),
+                            "associative": bool(associative),
+                            "elevation": elevation,
+                            "extrusion": extrusion,
+                            "paths": paths,
+                        },
+                        entity_style_map,
+                        layer_color_map,
+                        layer_color_overrides,
+                        dxftype="HATCH",
+                    ),
+                )
+            return
+
         if dxftype == "MINSERT":
             for (
                 handle,
@@ -630,7 +697,7 @@ class Layout:
 
         raise ValueError(
             f"unsupported entity type: {dxftype}. "
-            "Supported types: LINE, LWPOLYLINE, ARC, CIRCLE, ELLIPSE, SPLINE, POINT, TEXT, ATTRIB, ATTDEF, MTEXT, MINSERT, DIMENSION"
+            "Supported types: LINE, LWPOLYLINE, ARC, CIRCLE, ELLIPSE, SPLINE, POINT, TEXT, ATTRIB, ATTDEF, MTEXT, LEADER, HATCH, MINSERT, DIMENSION"
         )
 
 

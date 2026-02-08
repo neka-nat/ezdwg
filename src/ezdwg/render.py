@@ -137,6 +137,27 @@ def plot_layout(
                 color=color,
                 background=_resolve_mtext_background_bbox(ax, entity.dxf),
             )
+        elif dxftype == "LEADER":
+            _draw_polyline(
+                ax,
+                entity.dxf.get("points", []),
+                line_width,
+                color=color,
+                closed=False,
+                arc_segments=arc_segments,
+            )
+        elif dxftype == "HATCH":
+            for path in entity.dxf.get("paths", []):
+                points = path.get("points", []) if isinstance(path, dict) else []
+                closed = bool(path.get("closed", False)) if isinstance(path, dict) else False
+                _draw_polyline(
+                    ax,
+                    points,
+                    line_width,
+                    color=color,
+                    closed=closed,
+                    arc_segments=arc_segments,
+                )
         elif dxftype == "MINSERT":
             _draw_point(ax, entity.dxf.get("insert", (0.0, 0.0, 0.0)), line_width, color=color)
         elif dxftype == "DIMENSION":

@@ -78,6 +78,9 @@ type MTextEntityRow = (
     u16,
     MTextBackgroundRow,
 );
+type LeaderEntityRow = (u64, u16, u16, Vec<Point3>);
+type HatchPathRow = (bool, Vec<Point2>);
+type HatchEntityRow = (u64, String, bool, bool, f64, Point3, Vec<HatchPathRow>);
 type DimExtrusionScaleRow = (Point3, Point3);
 type DimAnglesRow = (f64, f64, f64, f64);
 type DimStyleRow = (u8, Option<f64>, Option<u16>, Option<u16>, Option<f64>, f64);
@@ -606,6 +609,64 @@ pub fn decode_entity_styles(path: &str, limit: Option<usize>) -> PyResult<Vec<En
             ));
         } else if matches_type_name(header.type_code, 0x2C, "MTEXT", &dynamic_types) {
             let entity = match decode_mtext_for_version(
+                &mut reader,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+            ) {
+                Ok(entity) => entity,
+                Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
+                Err(err) => return Err(to_py_err(err)),
+            };
+            let layer_handle = recover_entity_layer_handle_r2010_plus(
+                &record,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+                entity.layer_handle,
+                &known_layer_handles,
+            );
+            let layer_handle = layer_handle_remap
+                .get(&layer_handle)
+                .copied()
+                .unwrap_or(layer_handle);
+            result.push((
+                entity.handle,
+                entity.color_index,
+                entity.true_color,
+                layer_handle,
+            ));
+        } else if matches_type_name(header.type_code, 0x2D, "LEADER", &dynamic_types) {
+            let entity = match decode_leader_for_version(
+                &mut reader,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+            ) {
+                Ok(entity) => entity,
+                Err(err) if best_effort || is_recoverable_decode_error(&err) => continue,
+                Err(err) => return Err(to_py_err(err)),
+            };
+            let layer_handle = recover_entity_layer_handle_r2010_plus(
+                &record,
+                decoder.version(),
+                &header,
+                obj.handle.0,
+                entity.layer_handle,
+                &known_layer_handles,
+            );
+            let layer_handle = layer_handle_remap
+                .get(&layer_handle)
+                .copied()
+                .unwrap_or(layer_handle);
+            result.push((
+                entity.handle,
+                entity.color_index,
+                entity.true_color,
+                layer_handle,
+            ));
+        } else if matches_type_name(header.type_code, 0x4E, "HATCH", &dynamic_types) {
+            let entity = match decode_hatch_for_version(
                 &mut reader,
                 decoder.version(),
                 &header,
@@ -1443,6 +1504,106 @@ pub fn decode_mtext_entities(path: &str, limit: Option<usize>) -> PyResult<Vec<M
 }
 
 #[pyfunction(signature = (path, limit=None))]
+pub fn decode_leader_entities(path: &str, limit: Option<usize>) -> PyResult<Vec<LeaderEntityRow>> {
+    let bytes = file_open::read_file(path).map_err(to_py_err)?;
+    let decoder = build_decoder(&bytes).map_err(to_py_err)?;
+    let best_effort = is_best_effort_compat_version(&decoder);
+    let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
+    let index = decoder.build_object_index().map_err(to_py_err)?;
+    let mut result = Vec::new();
+    for obj in index.objects.iter() {
+        let Some((record, header)) = parse_record_and_header(&decoder, obj.offset, best_effort)?
+        else {
+            continue;
+        };
+        if !matches_type_name(header.type_code, 0x2D, "LEADER", &dynamic_types) {
+            continue;
+        }
+        let mut reader = record.bit_reader();
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
+            if best_effort {
+                continue;
+            }
+            return Err(to_py_err(err));
+        }
+        let entity = match decode_leader_for_version(
+            &mut reader,
+            decoder.version(),
+            &header,
+            obj.handle.0,
+        ) {
+            Ok(entity) => entity,
+            Err(err) if best_effort => continue,
+            Err(err) => return Err(to_py_err(err)),
+        };
+        result.push((
+            entity.handle,
+            entity.annotation_type,
+            entity.path_type,
+            entity.points,
+        ));
+        if let Some(limit) = limit {
+            if result.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(result)
+}
+
+#[pyfunction(signature = (path, limit=None))]
+pub fn decode_hatch_entities(path: &str, limit: Option<usize>) -> PyResult<Vec<HatchEntityRow>> {
+    let bytes = file_open::read_file(path).map_err(to_py_err)?;
+    let decoder = build_decoder(&bytes).map_err(to_py_err)?;
+    let best_effort = is_best_effort_compat_version(&decoder);
+    let dynamic_types = load_dynamic_types(&decoder, best_effort)?;
+    let index = decoder.build_object_index().map_err(to_py_err)?;
+    let mut result = Vec::new();
+    for obj in index.objects.iter() {
+        let Some((record, header)) = parse_record_and_header(&decoder, obj.offset, best_effort)?
+        else {
+            continue;
+        };
+        if !matches_type_name(header.type_code, 0x4E, "HATCH", &dynamic_types) {
+            continue;
+        }
+        let mut reader = record.bit_reader();
+        if let Err(err) = skip_object_type_prefix(&mut reader, decoder.version()) {
+            if best_effort {
+                continue;
+            }
+            return Err(to_py_err(err));
+        }
+        let entity =
+            match decode_hatch_for_version(&mut reader, decoder.version(), &header, obj.handle.0) {
+                Ok(entity) => entity,
+                Err(err) if best_effort => continue,
+                Err(err) => return Err(to_py_err(err)),
+            };
+        let paths: Vec<HatchPathRow> = entity
+            .paths
+            .into_iter()
+            .map(|path| (path.closed, path.points))
+            .collect();
+        result.push((
+            entity.handle,
+            entity.name,
+            entity.solid_fill,
+            entity.associative,
+            entity.elevation,
+            entity.extrusion,
+            paths,
+        ));
+        if let Some(limit) = limit {
+            if result.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(result)
+}
+
+#[pyfunction(signature = (path, limit=None))]
 pub fn decode_dim_linear_entities(path: &str, limit: Option<usize>) -> PyResult<Vec<DimEntityRow>> {
     decode_dim_entities_by_type(
         path,
@@ -2197,6 +2358,8 @@ pub fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(decode_attrib_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_attdef_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_mtext_entities, module)?)?;
+    module.add_function(wrap_pyfunction!(decode_leader_entities, module)?)?;
+    module.add_function(wrap_pyfunction!(decode_hatch_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_dim_linear_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_dim_ordinate_entities, module)?)?;
     module.add_function(wrap_pyfunction!(decode_dim_aligned_entities, module)?)?;
@@ -2430,6 +2593,47 @@ fn decode_mtext_for_version(
         version::DwgVersion::R2007 => entities::decode_mtext_r2007(reader),
         version::DwgVersion::R2004 => entities::decode_mtext_r2004(reader),
         _ => entities::decode_mtext(reader),
+    }
+}
+
+fn decode_leader_for_version(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+    header: &ApiObjectHeader,
+    object_handle: u64,
+) -> crate::core::result::Result<entities::LeaderEntity> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_leader_r2010(reader, object_data_end_bit, object_handle)
+        }
+        version::DwgVersion::R2013 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_leader_r2013(reader, object_data_end_bit, object_handle)
+        }
+        version::DwgVersion::R2007 => entities::decode_leader_r2007(reader),
+        _ => entities::decode_leader(reader),
+    }
+}
+
+fn decode_hatch_for_version(
+    reader: &mut BitReader<'_>,
+    version: &version::DwgVersion,
+    header: &ApiObjectHeader,
+    object_handle: u64,
+) -> crate::core::result::Result<entities::HatchEntity> {
+    match version {
+        version::DwgVersion::R2010 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_hatch_r2010(reader, object_data_end_bit, object_handle)
+        }
+        version::DwgVersion::R2013 => {
+            let object_data_end_bit = resolve_r2010_object_data_end_bit(header)?;
+            entities::decode_hatch_r2013(reader, object_data_end_bit, object_handle)
+        }
+        version::DwgVersion::R2007 => entities::decode_hatch_r2007(reader),
+        version::DwgVersion::R2004 => entities::decode_hatch_r2004(reader),
+        _ => entities::decode_hatch(reader),
     }
 }
 
