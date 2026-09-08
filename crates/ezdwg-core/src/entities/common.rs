@@ -561,8 +561,39 @@ fn read_common_entity_color_cmc(reader: &mut BitReader<'_>) -> Result<CommonEnti
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_common_entity_header_r2010, parse_common_entity_header_r2013};
+    use super::{
+        checked_handle_count, parse_common_entity_header_r2010, parse_common_entity_header_r2013,
+    };
     use crate::bit::{BitReader, BitWriter};
+    use crate::core::error::ErrorKind;
+
+    #[test]
+    fn checked_handle_count_rejects_counts_the_stream_cannot_hold() {
+        // 4 bytes of handle stream: at most 4 one-byte handle references.
+        let data = [0u8; 4];
+        let reader = BitReader::new(&data);
+        assert_eq!(checked_handle_count(&reader, 0, "owned").unwrap(), 0);
+        assert_eq!(checked_handle_count(&reader, 4, "owned").unwrap(), 4);
+        let err = checked_handle_count(&reader, 5, "owned").unwrap_err();
+        assert_eq!(err.kind, ErrorKind::Format);
+        // A garbage 32-bit count must be rejected instead of reserving gigabytes.
+        let err = checked_handle_count(&reader, u32::MAX as usize, "owned").unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("exceeds the remaining handle stream"));
+    }
+
+    #[test]
+    fn checked_handle_count_accounts_for_consumed_bits() {
+        let data = [0u8; 4];
+        let mut reader = BitReader::new(&data);
+        reader.read_bb().unwrap();
+        reader.read_bb().unwrap();
+        reader.read_bb().unwrap();
+        reader.read_bb().unwrap(); // one byte consumed → 3 bytes left
+        assert!(checked_handle_count(&reader, 3, "owned").is_ok());
+        assert!(checked_handle_count(&reader, 4, "owned").is_err());
+    }
 
     fn build_minimal_common_header_bytes(r2013_plus: bool) -> Vec<u8> {
         let mut writer = BitWriter::new();
@@ -690,8 +721,9 @@ pub fn parse_common_entity_handles(
         None
     };
 
-    let mut reactors = Vec::with_capacity(header.num_of_reactors as usize);
-    for _ in 0..header.num_of_reactors {
+    let num_of_reactors = checked_handle_count(reader, header.num_of_reactors as usize, "reactor")?;
+    let mut reactors = Vec::with_capacity(num_of_reactors);
+    for _ in 0..num_of_reactors {
         reactors.push(read_handle_reference(reader, header.handle)?);
     }
 
@@ -786,6 +818,25 @@ pub fn parse_common_entity_owner_and_layer_handle(
         }
         Err(err) => Err(err),
     }
+}
+
+/// Validates a handle-reference count that is about to drive a `Vec::with_capacity`.
+///
+/// Every handle reference occupies at least one byte of the handle stream, so a
+/// count larger than the bytes left in the reader cannot be satisfied and must
+/// come from a corrupted or misread field. Rejecting it up front keeps garbage
+/// counts (up to 2^32) from reserving gigabytes and aborting the whole process.
+pub fn checked_handle_count(reader: &BitReader<'_>, count: usize, what: &str) -> Result<usize> {
+    let remaining_bytes = (reader.total_bits().saturating_sub(reader.tell_bits()) / 8) as usize;
+    if count > remaining_bytes {
+        return Err(DwgError::new(
+            ErrorKind::Format,
+            format!(
+                "{what} count {count} exceeds the remaining handle stream ({remaining_bytes} bytes)"
+            ),
+        ));
+    }
+    Ok(count)
 }
 
 pub fn read_handle_reference(reader: &mut BitReader<'_>, base_handle: u64) -> Result<u64> {

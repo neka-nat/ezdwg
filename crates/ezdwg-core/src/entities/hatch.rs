@@ -457,7 +457,10 @@ fn decode_hatch_body(
                         let end_angle = reader.read_bd()?;
                         let is_ccw = reader.read_b()? != 0;
                         require_plausible_hatch_point(center, "ellipse edge center")?;
-                        require_plausible_hatch_point(major_endpoint, "ellipse edge major endpoint")?;
+                        require_plausible_hatch_point(
+                            major_endpoint,
+                            "ellipse edge major endpoint",
+                        )?;
                         require_plausible_hatch_scalar(ratio, "ellipse edge ratio")?;
                         require_plausible_hatch_scalar(start_angle, "ellipse edge start angle")?;
                         require_plausible_hatch_scalar(end_angle, "ellipse edge end angle")?;
@@ -1154,9 +1157,7 @@ fn charge_hatch_points(total: &mut usize, additional: usize) -> Result<()> {
     if *total > MAX_HATCH_TESSELLATION_POINTS {
         return Err(DwgError::new(
             ErrorKind::Format,
-            format!(
-                "hatch tessellation exceeds {MAX_HATCH_TESSELLATION_POINTS} points"
-            ),
+            format!("hatch tessellation exceeds {MAX_HATCH_TESSELLATION_POINTS} points"),
         ));
     }
     Ok(())

@@ -2,9 +2,10 @@ use crate::bit::BitReader;
 use crate::core::error::ErrorKind;
 use crate::core::result::Result;
 use crate::entities::common::{
-    parse_common_entity_handles, parse_common_entity_header, parse_common_entity_header_r2007,
-    parse_common_entity_header_r2010, parse_common_entity_header_r2013,
-    parse_common_entity_layer_handle, read_handle_reference, CommonEntityHeader,
+    checked_handle_count, parse_common_entity_handles, parse_common_entity_header,
+    parse_common_entity_header_r2007, parse_common_entity_header_r2010,
+    parse_common_entity_header_r2013, parse_common_entity_layer_handle, read_handle_reference,
+    CommonEntityHeader,
 };
 
 #[derive(Debug, Clone)]
@@ -18,14 +19,23 @@ pub struct Polyline3dEntity {
     pub owned_handles: Vec<u64>,
 }
 
+/// R2004 layout (also the fallback for newer versions): owned VERTEX handles are
+/// listed explicitly after an "Owned Object Count" BL.
 pub fn decode_polyline_3d(reader: &mut BitReader<'_>) -> Result<Polyline3dEntity> {
     let header = parse_common_entity_header(reader)?;
-    decode_polyline_3d_with_header(reader, header, false)
+    decode_polyline_3d_with_header(reader, header, false, true)
+}
+
+/// R2000 layout: no "Owned Object Count" (R2004+ only per the ODA spec); the
+/// vertices are resolved by scanning the objects that follow the polyline.
+pub fn decode_polyline_3d_r2000(reader: &mut BitReader<'_>) -> Result<Polyline3dEntity> {
+    let header = parse_common_entity_header(reader)?;
+    decode_polyline_3d_with_header(reader, header, false, false)
 }
 
 pub fn decode_polyline_3d_r2007(reader: &mut BitReader<'_>) -> Result<Polyline3dEntity> {
     let header = parse_common_entity_header_r2007(reader)?;
-    decode_polyline_3d_with_header(reader, header, true)
+    decode_polyline_3d_with_header(reader, header, true, true)
 }
 
 pub fn decode_polyline_3d_r2010(
@@ -35,7 +45,7 @@ pub fn decode_polyline_3d_r2010(
 ) -> Result<Polyline3dEntity> {
     let mut header = parse_common_entity_header_r2010(reader, object_data_end_bit)?;
     header.handle = object_handle;
-    decode_polyline_3d_with_header(reader, header, true)
+    decode_polyline_3d_with_header(reader, header, true, true)
 }
 
 pub fn decode_polyline_3d_r2013(
@@ -45,23 +55,30 @@ pub fn decode_polyline_3d_r2013(
 ) -> Result<Polyline3dEntity> {
     let mut header = parse_common_entity_header_r2013(reader, object_data_end_bit)?;
     header.handle = object_handle;
-    decode_polyline_3d_with_header(reader, header, true)
+    decode_polyline_3d_with_header(reader, header, true, true)
 }
 
 fn decode_polyline_3d_with_header(
     reader: &mut BitReader<'_>,
     header: CommonEntityHeader,
     allow_handle_decode_failure: bool,
+    has_owned_count: bool,
 ) -> Result<Polyline3dEntity> {
     let flags_75_bits = reader.read_rc()?;
     let flags_70_bits = reader.read_rc()?;
-    let owned_obj_count = reader.read_bl()? as usize;
+    let owned_obj_count = if has_owned_count {
+        reader.read_bl()? as usize
+    } else {
+        0
+    };
 
     // Handles are stored in the handle stream at obj_size bit offset.
     reader.set_bit_pos(header.obj_size);
     let handles_pos = reader.get_pos();
     let (layer_handle, owned_handles) = match parse_common_entity_handles(reader, &header) {
         Ok(common_handles) => {
+            let owned_obj_count =
+                checked_handle_count(reader, owned_obj_count, "POLYLINE_3D owned object")?;
             let mut owned_handles = Vec::with_capacity(owned_obj_count);
             for _ in 0..owned_obj_count {
                 owned_handles.push(read_handle_reference(reader, header.handle)?);

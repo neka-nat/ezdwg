@@ -5,6 +5,8 @@
 // R2010 / R2013 / R2018 resolve the object-data end bit via
 // `resolve_r2010_object_data_end_bit` and pass it to the version-specific decoder.
 // R2007 and the default branch take only the reader (no end-bit / handle params).
+// - optional `r2000:` gives R2000 its own decoder when the on-disk layout differs
+//   from R2004 (e.g. the polyline "Owned Object Count" that only exists for R2004+).
 macro_rules! impl_version_dispatch {
     (
         with_r14;
@@ -13,6 +15,7 @@ macro_rules! impl_version_dispatch {
         r2010: $r2010_fn:path;
         r2013: $r2013_fn:path;
         r2007: $r2007_fn:path;
+        $(r2000: $r2000_fn:path;)?
         default: $default_fn:path $(;)?
     ) => {
         fn $fn_name(
@@ -32,6 +35,7 @@ macro_rules! impl_version_dispatch {
                     $r2013_fn(reader, object_data_end_bit, object_handle)
                 }
                 version::DwgVersion::R2007 => $r2007_fn(reader),
+                $(version::DwgVersion::R2000 => $r2000_fn(reader),)?
                 _ => $default_fn(reader),
             }
         }
@@ -42,6 +46,7 @@ macro_rules! impl_version_dispatch {
         r2010: $r2010_fn:path;
         r2013: $r2013_fn:path;
         r2007: $r2007_fn:path;
+        $(r2000: $r2000_fn:path;)?
         default: $default_fn:path $(;)?
     ) => {
         fn $fn_name(
@@ -60,6 +65,7 @@ macro_rules! impl_version_dispatch {
                     $r2013_fn(reader, object_data_end_bit, object_handle)
                 }
                 version::DwgVersion::R2007 => $r2007_fn(reader),
+                $(version::DwgVersion::R2000 => $r2000_fn(reader),)?
                 _ => $default_fn(reader),
             }
         }

@@ -2078,6 +2078,7 @@ fn decode_polyline_2d_for_version(
                 entities::decode_polyline_2d(reader).or(Err(primary_err))
             }
         },
+        version::DwgVersion::R2000 => entities::decode_polyline_2d_r2000(reader),
         _ => entities::decode_polyline_2d(reader),
     }
 }
@@ -2120,6 +2121,7 @@ impl_version_dispatch! {
     r2010: entities::decode_polyline_3d_r2010;
     r2013: entities::decode_polyline_3d_r2013;
     r2007: entities::decode_polyline_3d_r2007;
+    r2000: entities::decode_polyline_3d_r2000;
     default: entities::decode_polyline_3d;
 }
 
@@ -2184,6 +2186,7 @@ impl_version_dispatch! {
     r2010: entities::decode_polyline_mesh_r2010;
     r2013: entities::decode_polyline_mesh_r2013;
     r2007: entities::decode_polyline_mesh_r2007;
+    r2000: entities::decode_polyline_mesh_r2000;
     default: entities::decode_polyline_mesh;
 }
 
@@ -2193,6 +2196,7 @@ impl_version_dispatch! {
     r2010: entities::decode_polyline_pface_r2010;
     r2013: entities::decode_polyline_pface_r2013;
     r2007: entities::decode_polyline_pface_r2007;
+    r2000: entities::decode_polyline_pface_r2000;
     default: entities::decode_polyline_pface;
 }
 
